@@ -1,5 +1,6 @@
 import os
 import traceback
+from aci.common import config as common_config
 from aci.common.encryption import decrypt, encrypt
 from aci.common.exceptions import DependencyCheckError
 
@@ -32,9 +33,18 @@ def check_aws_kms_dependency() -> None:
 
 
 def check_dependencies() -> None:
-    # Skip KMS check only in local environment (for development)
+    # Skip KMS check in local environment (for development)
     if os.getenv("SERVER_ENVIRONMENT") == "local":
         print("Skipping KMS dependency check for local environment")
         return
-    
+
+    # Skip when AWS KMS isn't configured at all — e.g. on-prem deployments
+    # using Azure Key Vault (or no field-level encryption) instead of AWS KMS.
+    if common_config.AZURE_KEY_ENCRYPTION_KEY_NAME:
+        print("Skipping AWS KMS dependency check: Azure Key Vault is configured instead")
+        return
+    if not common_config.KEY_ENCRYPTION_KEY_ARN:
+        print("Skipping AWS KMS dependency check: COMMON_KEY_ENCRYPTION_KEY_ARN is not set")
+        return
+
     check_aws_kms_dependency()

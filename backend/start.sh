@@ -14,4 +14,4 @@ sleep 5
 echo "🚀 Skipping manual seeding - using auto-seeding system instead"
 
 # Start the application
-exec uvicorn aci.server.main:app --proxy-headers --forwarded-allow-ips=* --host 0.0.0.0 --port 8000 --no-access-log
+exec uvicorn aci.server.main:app --proxy-headers --forwarded-allow-ips=* --host "${HOST:-0.0.0.0}" --port "${PORT:-8000}" --no-access-log
