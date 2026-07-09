@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import secrets
 from functools import cache
 from uuid import UUID
 
@@ -23,17 +24,89 @@ def check_and_get_env_variable(name: str) -> str:
     return value
 
 
+def is_enterprise_deployment() -> bool:
+    """Master switch for the on-prem/self-hosted env-var-optionality behavior.
+
+    Defaults to false, which preserves the original hard-required behavior
+    (check_and_get_env_variable raises at import for unset vars). Set
+    IS_ENTERPRISE_DEPLOYMENT=true to allow the server to start without every
+    integration configured.
+    """
+    return os.getenv("IS_ENTERPRISE_DEPLOYMENT", "false").strip().lower() == "true"
+
+
+def get_env_variable(name: str, default: str | None = None) -> str | None:
+    """Like `check_and_get_env_variable`, but tolerant of unset vars when
+    on-prem mode is enabled.
+
+    Used for on-prem/self-hosted deployments where not every integration
+    (billing, observability, third-party auth, ...) is configured — the
+    app should start and only fail when the corresponding feature is
+    actually exercised, not at import time. When IS_ENTERPRISE_DEPLOYMENT isn't
+    set to "true", this behaves exactly like `check_and_get_env_variable`.
+    """
+    if not is_enterprise_deployment():
+        return check_and_get_env_variable(name)
+
+    value = os.getenv(name)
+    return value if value else default
+
+
+def get_or_generate_secret(name: str, default: str | None = None) -> str:
+    """Returns the env var, `default` if given, or a random ephemeral secret.
+
+    For values used as cryptographic secrets (signing keys, hashing secrets)
+    that have no safe hardcoded default. In on-prem mode, an ephemeral secret
+    lets the app start without configuration, but it changes on every
+    restart — sessions and previously hashed values won't survive a restart.
+    Logs a warning so this doesn't fail silently. When IS_ENTERPRISE_DEPLOYMENT
+    isn't set to "true", this behaves exactly like `check_and_get_env_variable`.
+    """
+    if not is_enterprise_deployment():
+        return check_and_get_env_variable(name)
+
+    value = os.getenv(name) or default
+    if value:
+        return value
+
+    generated = secrets.token_urlsafe(32)
+    logger.warning(
+        f"Environment variable '{name}' is not set — generated an ephemeral secret for this "
+        "process. It will change on every restart, invalidating existing sessions/hashes. "
+        f"Set '{name}' explicitly for production deployments."
+    )
+    return generated
+
+
 _db_url_cache: str | None = None
 
 
 def get_db_password_sync() -> str:
-    """Returns the DB password — from an env var on Azure (Key Vault CSI injection),
-    or from AWS Secrets Manager on AWS."""
-    if os.getenv("CLOUD_PLATFORM") == "azure":
-        return check_and_get_env_variable("SERVER_DB_PASSWORD")
+    """Returns the DB password.
 
-    secret_name = check_and_get_env_variable("DB_SECRET_NAME")
-    region_name = check_and_get_env_variable("AWS_REGION_NAME")
+    On-prem mode: from SERVER_DB_PASSWORD directly, or from AWS Secrets
+    Manager. Otherwise (original behavior): from SERVER_DB_PASSWORD only on
+    Azure, or from AWS Secrets Manager (DB_SECRET_NAME/AWS_REGION_NAME
+    required) everywhere else.
+    """
+    if is_enterprise_deployment():
+        direct_password = os.getenv("SERVER_DB_PASSWORD")
+        if direct_password:
+            return direct_password
+
+        secret_name = os.getenv("DB_SECRET_NAME")
+        region_name = os.getenv("AWS_REGION_NAME")
+        if not secret_name or not region_name:
+            raise RuntimeError(
+                "No DB password configured: set SERVER_DB_PASSWORD directly, or both "
+                "DB_SECRET_NAME and AWS_REGION_NAME to fetch it from AWS Secrets Manager."
+            )
+    else:
+        if os.getenv("CLOUD_PLATFORM") == "azure":
+            return check_and_get_env_variable("SERVER_DB_PASSWORD")
+
+        secret_name = check_and_get_env_variable("DB_SECRET_NAME")
+        region_name = check_and_get_env_variable("AWS_REGION_NAME")
 
     client = boto3.client("secretsmanager", region_name=region_name)
     response = client.get_secret_value(SecretId=secret_name)
@@ -42,13 +115,31 @@ def get_db_password_sync() -> str:
 
 
 async def get_db_password() -> str:
-    """Returns the DB password — from an env var on Azure (Key Vault CSI injection),
-    or from AWS Secrets Manager on AWS."""
-    if os.getenv("CLOUD_PLATFORM") == "azure":
-        return check_and_get_env_variable("SERVER_DB_PASSWORD")
+    """Returns the DB password.
 
-    secret_name = check_and_get_env_variable("DB_SECRET_NAME")
-    region_name = check_and_get_env_variable("AWS_REGION_NAME")
+    On-prem mode: from SERVER_DB_PASSWORD directly, or from AWS Secrets
+    Manager. Otherwise (original behavior): from SERVER_DB_PASSWORD only on
+    Azure, or from AWS Secrets Manager (DB_SECRET_NAME/AWS_REGION_NAME
+    required) everywhere else.
+    """
+    if is_enterprise_deployment():
+        direct_password = os.getenv("SERVER_DB_PASSWORD")
+        if direct_password:
+            return direct_password
+
+        secret_name = os.getenv("DB_SECRET_NAME")
+        region_name = os.getenv("AWS_REGION_NAME")
+        if not secret_name or not region_name:
+            raise RuntimeError(
+                "No DB password configured: set SERVER_DB_PASSWORD directly, or both "
+                "DB_SECRET_NAME and AWS_REGION_NAME to fetch it from AWS Secrets Manager."
+            )
+    else:
+        if os.getenv("CLOUD_PLATFORM") == "azure":
+            return check_and_get_env_variable("SERVER_DB_PASSWORD")
+
+        secret_name = check_and_get_env_variable("DB_SECRET_NAME")
+        region_name = check_and_get_env_variable("AWS_REGION_NAME")
 
     async with aioboto3.Session(region_name=region_name).client("secretsmanager") as client:
         response = await client.get_secret_value(SecretId=secret_name)

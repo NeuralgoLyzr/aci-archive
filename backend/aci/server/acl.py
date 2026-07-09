@@ -12,7 +12,34 @@ from aci.server import config
 logger = logging.getLogger(__name__)
 
 
-_auth = init_auth(config.PROPELAUTH_AUTH_URL, config.PROPELAUTH_API_KEY)
+class _UnconfiguredAuth:
+    """Stand-in for FastAPIAuth when PropelAuth env vars aren't set.
+
+    Lets modules that do `auth = acl.get_propelauth()` and
+    `Depends(auth.require_user)` at import time keep working — the app can
+    still start and serve unauthenticated routes (e.g. health checks) — but
+    any authenticated route fails clearly (503) instead of at import time.
+    """
+
+    def __getattr__(self, name: str) -> object:
+        def _unconfigured(*args: object, **kwargs: object) -> None:
+            raise RuntimeError(
+                "PropelAuth is not configured: set SERVER_PROPELAUTH_AUTH_URL and "
+                "SERVER_PROPELAUTH_API_KEY to enable authenticated routes."
+            )
+
+        return _unconfigured
+
+
+_auth: FastAPIAuth
+if config.PROPELAUTH_AUTH_URL and config.PROPELAUTH_API_KEY:
+    _auth = init_auth(config.PROPELAUTH_AUTH_URL, config.PROPELAUTH_API_KEY)
+else:
+    logger.warning(
+        "SERVER_PROPELAUTH_AUTH_URL / SERVER_PROPELAUTH_API_KEY are not set — "
+        "authenticated routes will fail until they are configured."
+    )
+    _auth = _UnconfiguredAuth()  # type: ignore[assignment]
 
 
 def get_propelauth() -> FastAPIAuth:
