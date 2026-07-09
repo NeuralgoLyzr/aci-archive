@@ -34,6 +34,7 @@ from aci.common.schemas.linked_accounts import (
     LinkedAccountsList,
     LinkedAccountUpdate,
     LinkedAccountWithCredentials,
+    LinkedAccountWithFullCredentials,
 )
 from aci.common.schemas.security_scheme import (
     APIKeySchemeCredentials,
@@ -1027,6 +1028,56 @@ async def get_linked_account(
     - linked_account_id uniquely identifies a linked account across the platform.
     """
     logger.info(f"Get linked account, linked_account_id={linked_account_id}")
+    # validations
+    linked_account = crud.linked_accounts.get_linked_account_by_id_under_project(
+        context.db_session, linked_account_id, context.project.id
+    )
+    if not linked_account:
+        logger.error(f"Linked account not found, linked_account_id={linked_account_id}")
+        raise LinkedAccountNotFound(f"linked account={linked_account_id} not found")
+
+    # Get the app configuration to check and refresh credentials if needed
+    app_configuration = crud.app_configurations.get_app_configuration(
+        context.db_session, context.project.id, linked_account.app.name
+    )
+    if not app_configuration:
+        logger.error(
+            "app configuration not found",
+        )
+        raise AppConfigurationNotFound(
+            f"app configuration for app={linked_account.app.name} not found"
+        )
+
+    security_credentials_response = await scm.get_security_credentials(
+        linked_account.app, app_configuration, linked_account
+    )
+    scm.update_security_credentials(
+        context.db_session, linked_account.app, linked_account, security_credentials_response
+    )
+    logger.info(
+        f"Fetched security credentials for linked account, linked_account_id={linked_account.id}, "
+        f"is_updated={security_credentials_response.is_updated}"
+    )
+    context.db_session.commit()
+
+    return linked_account
+
+
+@router.get(
+    "/{linked_account_id}/credentials",
+    response_model=LinkedAccountWithFullCredentials,
+    response_model_exclude_none=True,
+)
+async def get_linked_account_full_credentials(
+    context: Annotated[deps.RequestContext, Depends(deps.get_request_context)],
+    linked_account_id: UUID,
+) -> LinkedAccount:
+    """
+    Get a linked account's full, unredacted credentials by its id.
+    Unlike GET /{linked_account_id}, this also returns the raw secret_key for
+    api_key-based linked accounts, not just oauth2 access/refresh tokens.
+    """
+    logger.info(f"Get linked account full credentials, linked_account_id={linked_account_id}")
     # validations
     linked_account = crud.linked_accounts.get_linked_account_by_id_under_project(
         context.db_session, linked_account_id, context.project.id

@@ -5,8 +5,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from aci.common.db.sql_models import MAX_STRING_LENGTH, SecurityScheme
 from aci.common.schemas.security_scheme import (
+    APIKeySchemeCredentials,
     APIKeySchemeCredentialsLimited,
+    NoAuthSchemeCredentials,
     NoAuthSchemeCredentialsLimited,
+    OAuth2SchemeCredentials,
     OAuth2SchemeCredentialsLimited,
 )
 
@@ -88,6 +91,18 @@ class LinkedAccountWithCredentials(LinkedAccountPublic):
         OAuth2SchemeCredentialsLimited
         | APIKeySchemeCredentialsLimited
         | NoAuthSchemeCredentialsLimited
+    )
+
+
+class LinkedAccountWithFullCredentials(LinkedAccountPublic):
+    """
+    Like LinkedAccountWithCredentials, but exposes the full, unredacted credentials
+    for every security scheme — including the raw secret_key for api_key-based
+    linked accounts, which LinkedAccountWithCredentials deliberately withholds.
+    """
+
+    security_credentials: (
+        OAuth2SchemeCredentials | APIKeySchemeCredentials | NoAuthSchemeCredentials
     )
 
 
