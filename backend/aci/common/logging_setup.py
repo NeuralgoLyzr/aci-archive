@@ -1,7 +1,12 @@
 import logging
 from logging.handlers import RotatingFileHandler
 
-import logfire
+try:
+    import logfire
+except ImportError:
+    # An incompatible opentelemetry SDK (e.g. injected by the OTel operator's
+    # auto-instrumentation) can make logfire unimportable; run without it.
+    logfire = None  # type: ignore[assignment]
 
 
 # the setup is called once at the start of the app
@@ -41,7 +46,10 @@ def setup_logging(
         root_logger.addHandler(file_handler)
 
     if environment != "local":
-        root_logger.addHandler(logfire.LogfireLoggingHandler())
+        if logfire is not None:
+            root_logger.addHandler(logfire.LogfireLoggingHandler())
+        else:
+            root_logger.warning("logfire unavailable - skipping LogfireLoggingHandler")
 
     # Set up module-specific loggers if necessary (e.g., with different levels)
     logging.getLogger("httpx").setLevel(logging.WARNING)

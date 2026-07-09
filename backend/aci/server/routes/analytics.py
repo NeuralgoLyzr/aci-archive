@@ -2,7 +2,14 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from logfire.experimental.query_client import AsyncLogfireQueryClient
+
+try:
+    from logfire.experimental.query_client import AsyncLogfireQueryClient
+except ImportError:
+    # An incompatible opentelemetry SDK (e.g. injected by the OTel operator's
+    # auto-instrumentation) can make logfire unimportable; analytics endpoints
+    # then return empty results instead of crashing the server at import time.
+    AsyncLogfireQueryClient = None  # type: ignore[assignment, misc]
 
 from aci.common.db import crud
 from aci.common.logging_setup import get_logger
@@ -29,6 +36,10 @@ def _get_project_api_key_ids_sql_list(context: deps.RequestContext) -> str | Non
 async def get_app_usage_distribution(
     context: Annotated[deps.RequestContext, Depends(deps.get_request_context)],
 ) -> list[DistributionDatapoint]:
+    if AsyncLogfireQueryClient is None:
+        logger.warning("logfire unavailable - returning empty analytics data")
+        return []
+
     api_key_ids_sql_list = _get_project_api_key_ids_sql_list(context)
 
     if not api_key_ids_sql_list:
@@ -58,6 +69,10 @@ ORDER BY value DESC;
 async def get_function_usage_distribution(
     context: Annotated[deps.RequestContext, Depends(deps.get_request_context)],
 ) -> list[DistributionDatapoint]:
+    if AsyncLogfireQueryClient is None:
+        logger.warning("logfire unavailable - returning empty analytics data")
+        return []
+
     api_key_ids_sql_list = _get_project_api_key_ids_sql_list(context)
 
     if not api_key_ids_sql_list:
@@ -87,6 +102,10 @@ ORDER BY value DESC;
 async def get_app_usage_timeseries(
     context: Annotated[deps.RequestContext, Depends(deps.get_request_context)],
 ) -> list[TimeSeriesDatapoint]:
+    if AsyncLogfireQueryClient is None:
+        logger.warning("logfire unavailable - returning empty analytics data")
+        return []
+
     api_key_ids_sql_list = _get_project_api_key_ids_sql_list(context)
 
     if not api_key_ids_sql_list:
@@ -132,6 +151,10 @@ ORDER BY x DESC;
 async def get_function_usage_timeseries(
     context: Annotated[deps.RequestContext, Depends(deps.get_request_context)],
 ) -> list[TimeSeriesDatapoint]:
+    if AsyncLogfireQueryClient is None:
+        logger.warning("logfire unavailable - returning empty analytics data")
+        return []
+
     api_key_ids_sql_list = _get_project_api_key_ids_sql_list(context)
 
     if not api_key_ids_sql_list:

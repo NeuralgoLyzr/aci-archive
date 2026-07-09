@@ -1,6 +1,12 @@
 from typing import Any
 
-import logfire
+try:
+    import logfire
+except ImportError as logfire_import_error:
+    # An incompatible opentelemetry SDK (e.g. injected by the OTel operator's
+    # auto-instrumentation) can make logfire unimportable; run without it.
+    logfire = None  # type: ignore[assignment]
+    print(f"logfire unavailable, continuing without it: {logfire_import_error}")
 import stripe
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -94,13 +100,15 @@ logger = logging.getLogger(__name__)
 logger.info("Skipping auto-seeding - manual seeding required")
 
 
-def scrubbing_callback(m: logfire.ScrubMatch) -> Any:
+def scrubbing_callback(m: "logfire.ScrubMatch") -> Any:
     if m.path == ("attributes", "api_key_id"):
         return m.value
 
 
 # Skip logfire in production if no valid token
-if config.ENVIRONMENT != "local" and config.LOGFIRE_WRITE_TOKEN and config.LOGFIRE_WRITE_TOKEN != "dummy":
+if logfire is None:
+    logger.warning("Skipping logfire configuration - logfire could not be imported")
+elif config.ENVIRONMENT != "local" and config.LOGFIRE_WRITE_TOKEN and config.LOGFIRE_WRITE_TOKEN != "dummy":
     try:
         logfire.configure(
             console=False,
