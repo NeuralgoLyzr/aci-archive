@@ -294,6 +294,38 @@ class SecuritySchemesPublic(BaseModel):
     no_auth: NoAuthSchemePublic | None = None
 
 
+class APIKeySchemeLocation(BaseModel):
+    """Where to place an api_key credential in a request. No secrets here."""
+
+    location: HttpLocation
+    name: str
+    prefix: str | None = None
+
+
+class OAuth2SchemeLocation(BaseModel):
+    """Where to place an oauth2 access token in a request. No secrets here."""
+
+    location: HttpLocation
+    name: str
+    prefix: str
+
+
+class NoAuthSchemeLocation(BaseModel):
+    pass
+
+
+class SecuritySchemesLocations(BaseModel):
+    """
+    scheme_type -> credential-placement metadata (location/name/prefix), with all other
+    fields (client_id, client_secret, scope, ...) filtered out via each model's default
+    extra="ignore" behavior — same mechanism SecuritySchemesPublic above relies on.
+    """
+
+    api_key: APIKeySchemeLocation | None = None
+    oauth2: OAuth2SchemeLocation | None = None
+    no_auth: NoAuthSchemeLocation | None = None
+
+
 class SecuritySchemeOverrides(BaseModel, extra="forbid"):
     """
     Allowed security scheme overrides
