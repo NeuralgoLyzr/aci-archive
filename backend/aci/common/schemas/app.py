@@ -14,6 +14,7 @@ from aci.common.schemas.security_scheme import (
     NoAuthSchemeCredentials,
     OAuth2Scheme,
     OAuth2SchemeCredentials,
+    SecuritySchemesLocations,
     SecuritySchemesPublic,
 )
 
@@ -205,3 +206,15 @@ class AppDetails(BaseModel):
     updated_at: datetime
 
     custom_app: bool
+
+
+class AppSecuritySchemeLocations(BaseModel):
+    """
+    Credential-placement metadata (header/query/body location, name, prefix) for an app's
+    supported security schemes. Deliberately separate from AppDetails.supported_security_schemes,
+    which strips this out — a client that already holds a linked account's real secret needs this
+    to know where to place it in a request, without changing AppDetails' existing contract.
+    """
+
+    app_name: str
+    security_scheme_locations: SecuritySchemesLocations
