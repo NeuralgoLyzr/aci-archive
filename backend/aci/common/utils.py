@@ -24,15 +24,15 @@ def check_and_get_env_variable(name: str) -> str:
     return value
 
 
-def is_onprem_deployment() -> bool:
+def is_enterprise_deployment() -> bool:
     """Master switch for the on-prem/self-hosted env-var-optionality behavior.
 
     Defaults to false, which preserves the original hard-required behavior
     (check_and_get_env_variable raises at import for unset vars). Set
-    IS_ONPREM_DEPLOYMENT=true to allow the server to start without every
+    IS_ENTERPRISE_DEPLOYMENT=true to allow the server to start without every
     integration configured.
     """
-    return os.getenv("IS_ONPREM_DEPLOYMENT", "false").strip().lower() == "true"
+    return os.getenv("IS_ENTERPRISE_DEPLOYMENT", "false").strip().lower() == "true"
 
 
 def get_env_variable(name: str, default: str | None = None) -> str | None:
@@ -42,10 +42,10 @@ def get_env_variable(name: str, default: str | None = None) -> str | None:
     Used for on-prem/self-hosted deployments where not every integration
     (billing, observability, third-party auth, ...) is configured — the
     app should start and only fail when the corresponding feature is
-    actually exercised, not at import time. When IS_ONPREM_DEPLOYMENT isn't
+    actually exercised, not at import time. When IS_ENTERPRISE_DEPLOYMENT isn't
     set to "true", this behaves exactly like `check_and_get_env_variable`.
     """
-    if not is_onprem_deployment():
+    if not is_enterprise_deployment():
         return check_and_get_env_variable(name)
 
     value = os.getenv(name)
@@ -59,10 +59,10 @@ def get_or_generate_secret(name: str, default: str | None = None) -> str:
     that have no safe hardcoded default. In on-prem mode, an ephemeral secret
     lets the app start without configuration, but it changes on every
     restart — sessions and previously hashed values won't survive a restart.
-    Logs a warning so this doesn't fail silently. When IS_ONPREM_DEPLOYMENT
+    Logs a warning so this doesn't fail silently. When IS_ENTERPRISE_DEPLOYMENT
     isn't set to "true", this behaves exactly like `check_and_get_env_variable`.
     """
-    if not is_onprem_deployment():
+    if not is_enterprise_deployment():
         return check_and_get_env_variable(name)
 
     value = os.getenv(name) or default
@@ -89,7 +89,7 @@ def get_db_password_sync() -> str:
     Azure, or from AWS Secrets Manager (DB_SECRET_NAME/AWS_REGION_NAME
     required) everywhere else.
     """
-    if is_onprem_deployment():
+    if is_enterprise_deployment():
         direct_password = os.getenv("SERVER_DB_PASSWORD")
         if direct_password:
             return direct_password
@@ -122,7 +122,7 @@ async def get_db_password() -> str:
     Azure, or from AWS Secrets Manager (DB_SECRET_NAME/AWS_REGION_NAME
     required) everywhere else.
     """
-    if is_onprem_deployment():
+    if is_enterprise_deployment():
         direct_password = os.getenv("SERVER_DB_PASSWORD")
         if direct_password:
             return direct_password

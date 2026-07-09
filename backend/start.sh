@@ -17,7 +17,7 @@ echo "🚀 Skipping manual seeding - using auto-seeding system instead"
 # otherwise this matches the original hardcoded 0.0.0.0:8000.
 BIND_HOST="0.0.0.0"
 BIND_PORT="8000"
-if [ "$(echo "${IS_ONPREM_DEPLOYMENT:-false}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
+if [ "$(echo "${IS_ENTERPRISE_DEPLOYMENT:-false}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
     BIND_HOST="${HOST:-0.0.0.0}"
     BIND_PORT="${PORT:-8000}"
 fi
