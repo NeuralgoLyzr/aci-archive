@@ -2,13 +2,13 @@
 CRUD operations for apps. (not including app_configurations)
 """
 
-import os
 from uuid import UUID
 
 from sqlalchemy import select, update, or_
 from sqlalchemy.orm import Session
 
 from aci.common.db.sql_models import App
+from aci.common.utils import get_lyzr_api_key_id
 from aci.common.enums import SecurityScheme, Visibility
 from aci.common.logging_setup import get_logger
 from aci.common.schemas.app import AppUpsert
@@ -73,7 +73,7 @@ def update_app_default_security_credentials(
 
 def get_app(db_session: Session, app_name: str, public_only: bool, active_only: bool, api_key_id: UUID | None = None) -> App | None:
     statement = select(App).filter_by(name=app_name)
-    LYZR_API_KEY_ID_DB = UUID(os.getenv("LYZR_API_KEY_ID_DB"))
+    LYZR_API_KEY_ID_DB = get_lyzr_api_key_id()
 
     if active_only:
         statement = statement.filter(App.active)
@@ -111,7 +111,7 @@ def get_apps(
     if app_names is not None:
         statement = statement.filter(App.name.in_(app_names))
 
-    LYZR_API_KEY_ID_DB = UUID(os.getenv("LYZR_API_KEY_ID_DB"))
+    LYZR_API_KEY_ID_DB = get_lyzr_api_key_id()
 
     if api_key_id is not None:
         try:

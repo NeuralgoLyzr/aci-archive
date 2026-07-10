@@ -1,17 +1,17 @@
 from uuid import UUID
-import os
 
 from sqlalchemy import select, update, or_
 from sqlalchemy.orm import Session
 
 from aci.common import utils
+from aci.common.utils import get_lyzr_api_key_id
 from aci.common.db import crud
 from aci.common.db.sql_models import App, Function
 from aci.common.enums import Visibility
 from aci.common.logging_setup import get_logger
 from aci.common.schemas.function import FunctionUpsert
 
-LYZR_API_KEY_ID_DB = UUID(os.getenv("LYZR_API_KEY_ID_DB"))
+LYZR_API_KEY_ID_DB = get_lyzr_api_key_id()
 
 logger = get_logger(__name__)
 
