@@ -1,8 +1,7 @@
-import json
+import asyncio
 import os
 from logging.config import fileConfig
 
-import boto3
 from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
@@ -32,24 +31,14 @@ target_metadata = Base.metadata
 # ... etc.
 
 
-def _check_and_get_env_variable(name: str) -> str:
-    value = os.getenv(name)
-    if value is None:
-        raise ValueError(f"Environment variable '{name}' is not set")
-    if value == "":
-        raise ValueError(f"Environment variable '{name}' is empty string")
-    return value
-
-
 def _get_db_password() -> str:
-    """Fetches the DB password from AWS Secrets Manager synchronously."""
-    secret_name = _check_and_get_env_variable("DB_SECRET_NAME")
-    region_name = _check_and_get_env_variable("AWS_REGION_NAME")
+    """Fetches the DB password via cloudrift secrets."""
+    from aci.common.utils import _fetch_db_password
 
-    client = boto3.client("secretsmanager", region_name=region_name)
-    response = client.get_secret_value(SecretId=secret_name)
-    secret_dict = json.loads(response["SecretString"])
-    return secret_dict["password"]
+    secret_name = os.getenv("DB_SECRET_NAME")
+    if not secret_name:
+        return os.getenv("SERVER_DB_PASSWORD", "")
+    return asyncio.run(_fetch_db_password(secret_name))
 
 
 def _get_db_url() -> str:

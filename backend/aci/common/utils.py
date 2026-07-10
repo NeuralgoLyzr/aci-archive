@@ -1,12 +1,10 @@
-import json
+import asyncio
 import os
 import re
 import secrets
 from functools import cache
 from uuid import UUID
 
-import aioboto3
-import boto3
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -79,15 +77,50 @@ def get_or_generate_secret(name: str, default: str | None = None) -> str:
 
 
 _db_url_cache: str | None = None
+_secrets_backend = None
+
+
+def _get_secrets_backend():
+    """Build a cloudrift secrets backend based on CLOUD_PLATFORM."""
+    global _secrets_backend
+    if _secrets_backend is not None:
+        return _secrets_backend
+
+    from cloudrift.secrets import get_secrets
+
+    cloud_platform = os.getenv("CLOUD_PLATFORM", "aws")
+    if cloud_platform == "azure":
+        vault_url = check_and_get_env_variable("AZURE_KEY_VAULT_URL")
+        _secrets_backend = get_secrets("azure_keyvault", vault_url=vault_url)
+    else:
+        region = check_and_get_env_variable("AWS_REGION_NAME")
+        kwargs: dict = {"region": region}
+        ak = os.getenv("AWS_ACCESS_KEY_ID")
+        sk = os.getenv("AWS_SECRET_ACCESS_KEY")
+        if ak and sk:
+            kwargs["aws_access_key_id"] = ak
+            kwargs["aws_secret_access_key"] = sk
+        _secrets_backend = get_secrets("aws_secrets_manager", **kwargs)
+    return _secrets_backend
+
+
+async def _fetch_db_password(secret_name: str) -> str:
+    """Fetch DB password from cloudrift secrets backend."""
+    backend = _get_secrets_backend()
+    cloud_platform = os.getenv("CLOUD_PLATFORM", "aws")
+    if cloud_platform == "azure":
+        return await backend.get_secret(secret_name)
+    secret_dict = await backend.get_secret_json(secret_name)
+    return secret_dict["password"]
 
 
 def get_db_password_sync() -> str:
     """Returns the DB password.
 
-    On-prem mode: from SERVER_DB_PASSWORD directly, or from AWS Secrets
-    Manager. Otherwise (original behavior): from SERVER_DB_PASSWORD only on
-    Azure, or from AWS Secrets Manager (DB_SECRET_NAME/AWS_REGION_NAME
-    required) everywhere else.
+    On-prem mode: from SERVER_DB_PASSWORD directly, or via the cloudrift
+    secrets backend (DB_SECRET_NAME required). Otherwise (original behavior):
+    from SERVER_DB_PASSWORD only on Azure, or via cloudrift secrets everywhere
+    else (DB_SECRET_NAME/AWS_REGION_NAME required).
     """
     if is_enterprise_deployment():
         direct_password = os.getenv("SERVER_DB_PASSWORD")
@@ -95,32 +128,27 @@ def get_db_password_sync() -> str:
             return direct_password
 
         secret_name = os.getenv("DB_SECRET_NAME")
-        region_name = os.getenv("AWS_REGION_NAME")
-        if not secret_name or not region_name:
+        if not secret_name:
             raise RuntimeError(
-                "No DB password configured: set SERVER_DB_PASSWORD directly, or both "
-                "DB_SECRET_NAME and AWS_REGION_NAME to fetch it from AWS Secrets Manager."
+                "No DB password configured: set SERVER_DB_PASSWORD directly, or "
+                "DB_SECRET_NAME to fetch it via the cloudrift secrets backend."
             )
     else:
         if os.getenv("CLOUD_PLATFORM") == "azure":
             return check_and_get_env_variable("SERVER_DB_PASSWORD")
 
         secret_name = check_and_get_env_variable("DB_SECRET_NAME")
-        region_name = check_and_get_env_variable("AWS_REGION_NAME")
 
-    client = boto3.client("secretsmanager", region_name=region_name)
-    response = client.get_secret_value(SecretId=secret_name)
-    secret_dict = json.loads(response["SecretString"])
-    return secret_dict["password"]
+    return asyncio.run(_fetch_db_password(secret_name))
 
 
 async def get_db_password() -> str:
     """Returns the DB password.
 
-    On-prem mode: from SERVER_DB_PASSWORD directly, or from AWS Secrets
-    Manager. Otherwise (original behavior): from SERVER_DB_PASSWORD only on
-    Azure, or from AWS Secrets Manager (DB_SECRET_NAME/AWS_REGION_NAME
-    required) everywhere else.
+    On-prem mode: from SERVER_DB_PASSWORD directly, or via the cloudrift
+    secrets backend (DB_SECRET_NAME required). Otherwise (original behavior):
+    from SERVER_DB_PASSWORD only on Azure, or via cloudrift secrets everywhere
+    else (DB_SECRET_NAME/AWS_REGION_NAME required).
     """
     if is_enterprise_deployment():
         direct_password = os.getenv("SERVER_DB_PASSWORD")
@@ -128,23 +156,18 @@ async def get_db_password() -> str:
             return direct_password
 
         secret_name = os.getenv("DB_SECRET_NAME")
-        region_name = os.getenv("AWS_REGION_NAME")
-        if not secret_name or not region_name:
+        if not secret_name:
             raise RuntimeError(
-                "No DB password configured: set SERVER_DB_PASSWORD directly, or both "
-                "DB_SECRET_NAME and AWS_REGION_NAME to fetch it from AWS Secrets Manager."
+                "No DB password configured: set SERVER_DB_PASSWORD directly, or "
+                "DB_SECRET_NAME to fetch it via the cloudrift secrets backend."
             )
     else:
         if os.getenv("CLOUD_PLATFORM") == "azure":
             return check_and_get_env_variable("SERVER_DB_PASSWORD")
 
         secret_name = check_and_get_env_variable("DB_SECRET_NAME")
-        region_name = check_and_get_env_variable("AWS_REGION_NAME")
 
-    async with aioboto3.Session(region_name=region_name).client("secretsmanager") as client:
-        response = await client.get_secret_value(SecretId=secret_name)
-        secret_dict = json.loads(response["SecretString"])
-        return secret_dict["password"]
+    return await _fetch_db_password(secret_name)
 
 
 def construct_db_url_sync(
