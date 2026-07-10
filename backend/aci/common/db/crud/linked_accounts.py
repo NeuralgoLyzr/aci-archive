@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 from uuid import UUID
 
@@ -6,6 +5,7 @@ from sqlalchemy import distinct, exists, func, select, or_
 from sqlalchemy.orm import Session
 
 from aci.common import validators
+from aci.common.utils import get_lyzr_api_key_id
 from aci.common.db.sql_models import App, LinkedAccount, Project
 from aci.common.enums import SecurityScheme
 from aci.common.logging_setup import get_logger
@@ -111,7 +111,7 @@ def create_linked_account(
     statement = select(App.id).filter_by(name=app_name)
 
     if api_key_id is not None:
-        LYZR_API_KEY_ID_DB = UUID(os.getenv("LYZR_API_KEY_ID_DB"))
+        LYZR_API_KEY_ID_DB = get_lyzr_api_key_id()
         statement = statement.filter(or_(App.api_key_id == api_key_id, App.api_key_id == LYZR_API_KEY_ID_DB))
         # Prioritize exact api_key_id match first, then fallback to LYZR_API_KEY_ID_DB
         statement = statement.order_by((App.api_key_id == api_key_id).desc())

@@ -1,6 +1,4 @@
 from typing import Annotated
-import os
-from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from openai import OpenAI
 
@@ -17,6 +15,7 @@ from aci.common.schemas.app import (
 )
 from aci.common.schemas.function import BasicFunctionDefinition, FunctionDetails
 from aci.common.schemas.security_scheme import SecuritySchemesPublic
+from aci.common.utils import get_lyzr_api_key_id
 from aci.server import config
 from aci.server import dependencies as deps
 
@@ -24,7 +23,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 # TODO: will this be a bottleneck and problem if high concurrent requests from users?
 openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
-LYZR_API_KEY_ID_DB = UUID(os.getenv("LYZR_API_KEY_ID_DB"))
+LYZR_API_KEY_ID_DB = get_lyzr_api_key_id()
 
 
 @router.get("", response_model_exclude_none=True)

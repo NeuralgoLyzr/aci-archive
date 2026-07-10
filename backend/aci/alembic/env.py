@@ -42,7 +42,16 @@ def _check_and_get_env_variable(name: str) -> str:
 
 
 def _get_db_password() -> str:
-    """Fetches the DB password from AWS Secrets Manager synchronously."""
+    """Returns the DB password.
+
+    Prefers a directly-set password (ALEMBIC_DB_PASSWORD / SERVER_DB_PASSWORD,
+    used by on-prem deployments without AWS Secrets Manager), then falls back
+    to fetching from AWS Secrets Manager (DB_SECRET_NAME / AWS_REGION_NAME).
+    """
+    direct_password = os.getenv("ALEMBIC_DB_PASSWORD") or os.getenv("SERVER_DB_PASSWORD")
+    if direct_password:
+        return direct_password
+
     secret_name = _check_and_get_env_variable("DB_SECRET_NAME")
     region_name = _check_and_get_env_variable("AWS_REGION_NAME")
 

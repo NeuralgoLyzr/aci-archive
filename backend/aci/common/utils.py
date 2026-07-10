@@ -52,6 +52,20 @@ def get_env_variable(name: str, default: str | None = None) -> str | None:
     return value if value else default
 
 
+def get_lyzr_api_key_id() -> UUID | None:
+    """Returns LYZR_API_KEY_ID_DB (the platform-seeded apps' api_key_id) as a
+    UUID, or None when unset.
+
+    Callers previously did `UUID(os.getenv("LYZR_API_KEY_ID_DB"))` inline,
+    which raises TypeError at import/request time whenever the var is unset
+    (e.g. on-prem deployments that never seeded with a platform key). With
+    None, SQLAlchemy filters degrade to `api_key_id IS NULL`, which matches
+    apps seeded without a platform key.
+    """
+    value = os.getenv("LYZR_API_KEY_ID_DB")
+    return UUID(value) if value else None
+
+
 def get_or_generate_secret(name: str, default: str | None = None) -> str:
     """Returns the env var, `default` if given, or a random ephemeral secret.
 

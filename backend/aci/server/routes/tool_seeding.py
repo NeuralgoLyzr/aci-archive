@@ -4,7 +4,6 @@ Matches the Docker exec commands from README.md
 """
 
 import json
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -24,6 +23,7 @@ from aci.common.enums import Visibility
 from aci.common.logging_setup import get_logger
 from aci.common.schemas.app import AppDetails
 from aci.common.schemas.function import FunctionDetails
+from aci.common.utils import get_lyzr_api_key_id
 from propelauth_fastapi import User
 
 logger = get_logger(__name__)
@@ -108,7 +108,7 @@ async def upsert_app_via_api(
                 detail=f"App file not found at path: {app_file_path}"
             )
 
-        LYZR_API_KEY_ID_DB = UUID(os.getenv("LYZR_API_KEY_ID_DB"))
+        LYZR_API_KEY_ID_DB = get_lyzr_api_key_id()
 
         # Handle secrets - either from file or from request
         secrets_file_path = None
@@ -182,7 +182,7 @@ async def upsert_functions_via_api(
                 detail=f"Functions file not found at path: {functions_file_path}"
             )
 
-        LYZR_API_KEY_ID_DB = UUID(os.getenv("LYZR_API_KEY_ID_DB"))
+        LYZR_API_KEY_ID_DB = get_lyzr_api_key_id()
 
         # Initialize CLI config DB_FULL_URL if not set
         if upsert_functions.config.DB_FULL_URL is None:
@@ -333,7 +333,7 @@ async def get_seeded_apps(
     Get list of apps that have been seeded (exist in the database).
     """
     try:
-        LYZR_API_KEY_ID_DB = UUID(os.getenv("LYZR_API_KEY_ID_DB"))
+        LYZR_API_KEY_ID_DB = get_lyzr_api_key_id()
         # Get all apps from the database
         apps = crud.apps.get_apps(
             db_session,
