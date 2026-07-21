@@ -42,6 +42,16 @@ dependencies = [
     "langchain-openai>=0.3.28",
     "elevenlabs>=2.8.1",
     "alembic>=1.15.2",
+    # Pin OpenTelemetry to match lyzr/rag. logfire pulls these in transitively;
+    # left unpinned the resolver floats them, and versions out of step with the
+    # K8s OTel operator's auto-instrumentation make the injected SDK incompatible
+    # (logfire then fails to import — see the guarded try/except in server/main.py,
+    # routes/analytics.py, common/logging_setup.py). Pinning holds the resolved
+    # version steady. aci uses logfire's HTTP OTLP exporter only. Bump in lockstep
+    # with rag.
+    "opentelemetry-sdk==1.41.1",
+    "opentelemetry-api==1.41.1",
+    "opentelemetry-exporter-otlp-proto-http==1.41.1",
 ]
 
 [dependency-groups]
