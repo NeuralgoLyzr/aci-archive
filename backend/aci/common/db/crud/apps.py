@@ -5,10 +5,10 @@ CRUD operations for apps. (not including app_configurations)
 import os
 from uuid import UUID
 
-from sqlalchemy import select, update, or_
+from sqlalchemy import delete as sql_delete, select, update, or_
 from sqlalchemy.orm import Session
 
-from aci.common.db.sql_models import App
+from aci.common.db.sql_models import App, AppConfiguration, LinkedAccount
 from aci.common.enums import SecurityScheme, Visibility
 from aci.common.logging_setup import get_logger
 from aci.common.schemas.app import AppUpsert
@@ -211,17 +211,38 @@ def delete_app_by_id(
     app_id: UUID,
     api_key_id: UUID,
 ) -> bool:
-    """Delete an app if it was created by the given API key."""
+    """Delete an app if it was created by the given API key.
+
+    Explicitly removes AppConfiguration and LinkedAccount rows that reference
+    this app before deleting the app itself, because App has no ORM cascade to
+    those tables and Postgres FK constraints would otherwise reject the DELETE.
+    """
     try:
         app = db_session.execute(
             select(App).filter(App.id == app_id, App.api_key_id == api_key_id)
         ).scalar_one_or_none()
 
-        if app:
-            db_session.delete(app)
-            db_session.flush()
-            return True
-        return False
+        if not app:
+            return False
+
+        # Delete dependents with synchronize_session=False to bypass identity-map
+        # evaluation, then flush immediately so the rows are gone in the DB before
+        # we attempt to DELETE the app row (which has no ORM cascade to these tables).
+        db_session.execute(
+            sql_delete(LinkedAccount)
+            .where(LinkedAccount.app_id == app_id)
+            .execution_options(synchronize_session=False)
+        )
+        db_session.execute(
+            sql_delete(AppConfiguration)
+            .where(AppConfiguration.app_id == app_id)
+            .execution_options(synchronize_session=False)
+        )
+        db_session.flush()
+
+        db_session.delete(app)
+        db_session.flush()
+        return True
     except Exception as e:
         if "column apps.api_key_id does not exist" in str(e):
             logger.warning("api_key_id column does not exist yet in apps table. Cannot delete app.")

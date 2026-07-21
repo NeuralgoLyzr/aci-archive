@@ -12,7 +12,7 @@ from typing import Annotated, Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
 from aci.cli.commands import upsert_app, upsert_functions
@@ -20,7 +20,6 @@ from aci.common.db import crud
 from aci.common.db.sql_models import App, Function
 from aci.server import config, dependencies as deps
 from aci.server.acl import get_propelauth
-from aci.common.enums import Visibility
 from aci.common.logging_setup import get_logger
 from aci.common.schemas.app import AppDetails
 from aci.common.schemas.function import FunctionDetails
@@ -516,6 +515,18 @@ async def upsert_app_from_json(
             if secrets_file_path and secrets_file_path.exists():
                 secrets_file_path.unlink()
 
+    except ValidationError as e:
+        lines = []
+        for err in e.errors():
+            loc = err["loc"]
+            field = " → ".join(str(l) for l in loc) if loc else "(root)"
+            lines.append(f"App JSON · {field}: {err['msg']}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="\n".join(lines),
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error upserting app from JSON content: {str(e)}")
         raise HTTPException(
@@ -573,6 +584,23 @@ async def upsert_functions_from_json(
             if functions_file_path.exists():
                 functions_file_path.unlink()
 
+    except ValidationError as e:
+        lines = []
+        for err in e.errors():
+            loc = err["loc"]
+            if loc and isinstance(loc[0], int):
+                item_label = f"item #{loc[0] + 1}"
+                field = " → ".join(str(l) for l in loc[1:]) if len(loc) > 1 else "(root)"
+                lines.append(f"Function JSON · {item_label} · {field}: {err['msg']}")
+            else:
+                field = " → ".join(str(l) for l in loc) if loc else "(root)"
+                lines.append(f"Function JSON · {field}: {err['msg']}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="\n".join(lines),
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error upserting functions from JSON content: {str(e)}")
         raise HTTPException(
@@ -738,11 +766,11 @@ async def delete_my_custom_app_by_id(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting custom app {app_id}: {str(e)}")
+        logger.error(f"Error deleting custom app {app_id}: {str(e)}", exc_info=True)
         context.db_session.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete app: {str(e)}"
+            detail=f"Error deleting custom app {app_id}: {str(e)}"
         )
 
 
