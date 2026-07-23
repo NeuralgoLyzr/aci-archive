@@ -4,7 +4,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /workdir
 
 COPY ./pyproject.toml ./uv.lock /workdir/
-RUN uv sync --no-dev --no-install-project
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Install PostgreSQL client for schema creation
 RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
@@ -38,4 +38,3 @@ COPY ./start.sh /workdir/start.sh
 RUN chmod +x /workdir/start.sh
 
 CMD ["/workdir/start.sh"]
-
