@@ -35,7 +35,11 @@ from aci.server.routes import (
     tool_seeding,
     webhooks,
 )
+from aci.server.fix_schema import fix_schema
 from aci.server.sentry import setup_sentry
+
+# Run simple schema fixes first (if RUN_SCHEMA_FIXES=true)
+fix_schema()
 
 check_dependencies()
 
@@ -72,6 +76,14 @@ app = FastAPI(
     openapi_url=config.APP_OPENAPI_URL,
     generate_unique_id_function=custom_generate_unique_id,
 )
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Initialize database connection on server startup."""
+    await config.get_db_full_url()
+    logger.info("Database URL initialized")
+
 
 auth = get_propelauth()
 
@@ -124,6 +136,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://main.de73cci4api6i.amplifyapp.com",
+        "https://aci.studio.lyzr.ai",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -223,5 +236,5 @@ app.include_router(
     tool_seeding.router,
     prefix="/v1/tool-seeding",
     tags=["tool-seeding"],
-    # dependencies=[Depends(auth.require_user)],  # Use PropelAuth like projects router
+    # dependencies=[Depends(auth.require_user)],  # Enable PropelAuth authentication
 )

@@ -43,12 +43,14 @@ export interface SeededApp {
 
 export async function getSeedingStatus(
   accessToken: string,
+  orgId: string,
 ): Promise<SeedingStatus> {
   const response = await fetch(
     `${process.env.NEXT_PUBLIC_API_URL}/v1/tool-seeding/seeding-status`,
     {
       method: "GET",
       headers: {
+        "X-ACI-ORG-ID": orgId,
         Authorization: `Bearer ${accessToken}`,
       },
       credentials: "include",
@@ -66,6 +68,7 @@ export async function getSeedingStatus(
 
 export async function seedTool(
   accessToken: string,
+  orgId: string,
   request: SeedingRequest,
 ): Promise<SeedingResponse> {
   const response = await fetch(
@@ -74,6 +77,7 @@ export async function seedTool(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-ACI-ORG-ID": orgId,
         Authorization: `Bearer ${accessToken}`,
       },
       credentials: "include",
@@ -92,12 +96,14 @@ export async function seedTool(
 
 export async function getAvailableApps(
   accessToken: string,
+  orgId: string,
 ): Promise<AvailableApp[]> {
   const response = await fetch(
     `${process.env.NEXT_PUBLIC_API_URL}/v1/tool-seeding/available-apps`,
     {
       method: "GET",
       headers: {
+        "X-ACI-ORG-ID": orgId,
         Authorization: `Bearer ${accessToken}`,
       },
       credentials: "include",
@@ -113,12 +119,16 @@ export async function getAvailableApps(
   return response.json();
 }
 
-export async function getSeededApps(accessToken: string): Promise<SeededApp[]> {
+export async function getSeededApps(
+  accessToken: string,
+  orgId: string,
+): Promise<SeededApp[]> {
   const response = await fetch(
     `${process.env.NEXT_PUBLIC_API_URL}/v1/tool-seeding/seeded-apps`,
     {
       method: "GET",
       headers: {
+        "X-ACI-ORG-ID": orgId,
         Authorization: `Bearer ${accessToken}`,
       },
       credentials: "include",

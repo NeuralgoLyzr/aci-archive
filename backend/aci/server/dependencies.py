@@ -35,8 +35,9 @@ class RequestContext:
         self.agent = agent
 
 
-def yield_db_session() -> Generator[Session, None, None]:
-    db_session = utils.create_db_session(config.DB_FULL_URL)
+async def yield_db_session() -> Generator[Session, None, None]:
+    db_url = await config.get_db_full_url()
+    db_session = utils.create_db_session(db_url)
     try:
         yield db_session
     finally:

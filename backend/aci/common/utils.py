@@ -1,8 +1,11 @@
+import json
 import os
 import re
 from functools import cache
 from uuid import UUID
 
+import aioboto3
+import boto3
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -20,10 +23,61 @@ def check_and_get_env_variable(name: str) -> str:
     return value
 
 
-def construct_db_url(
-    scheme: str, user: str, password: str, host: str, port: str, db_name: str
+_db_url_cache: str | None = None
+
+
+def get_db_password_sync() -> str:
+    """Fetches the DB password from AWS Secrets Manager synchronously."""
+    secret_name = check_and_get_env_variable("DB_SECRET_NAME")
+    region_name = check_and_get_env_variable("AWS_REGION_NAME")
+
+    client = boto3.client("secretsmanager", region_name=region_name)
+    response = client.get_secret_value(SecretId=secret_name)
+    secret_dict = json.loads(response["SecretString"])
+    return secret_dict["password"]
+
+
+async def get_db_password() -> str:
+    """Fetches the DB password from AWS Secrets Manager asynchronously."""
+    secret_name = check_and_get_env_variable("DB_SECRET_NAME")
+    region_name = check_and_get_env_variable("AWS_REGION_NAME")
+
+    async with aioboto3.Session(region_name=region_name).client("secretsmanager") as client:
+        response = await client.get_secret_value(SecretId=secret_name)
+        secret_dict = json.loads(response["SecretString"])
+        return secret_dict["password"]
+
+
+def construct_db_url_sync(
+    scheme: str, user: str, host: str, port: str, db_name: str
 ) -> str:
-    return f"{scheme}://{user}:{password}@{host}:{port}/{db_name}"
+    """
+    Constructs the database URL by fetching the password from AWS Secrets Manager synchronously.
+    The result is cached to avoid repeated API calls.
+    """
+    global _db_url_cache
+    if _db_url_cache is not None:
+        return _db_url_cache
+
+    password = get_db_password_sync()
+    _db_url_cache = f"{scheme}://{user}:{password}@{host}:{port}/{db_name}"
+    return _db_url_cache
+
+
+async def construct_db_url(
+    scheme: str, user: str, host: str, port: str, db_name: str
+) -> str:
+    """
+    Constructs the database URL by fetching the password from AWS Secrets Manager asynchronously.
+    The result is cached to avoid repeated API calls.
+    """
+    global _db_url_cache
+    if _db_url_cache is not None:
+        return _db_url_cache
+
+    password = await get_db_password()
+    _db_url_cache = f"{scheme}://{user}:{password}@{host}:{port}/{db_name}"
+    return _db_url_cache
 
 
 def format_to_screaming_snake_case(name: str) -> str:

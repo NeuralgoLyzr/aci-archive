@@ -49,7 +49,7 @@ import {
 } from "@/lib/api/tool-seeding";
 
 export default function ToolSeedingPage() {
-  const { accessToken } = useMetaInfo();
+  const { accessToken, activeOrg } = useMetaInfo();
 
   // Form state
   const [selectedApp, setSelectedApp] = useState<AvailableApp | null>(null);
@@ -71,12 +71,14 @@ export default function ToolSeedingPage() {
   const [isSeeding, setIsSeeding] = useState(false);
 
   const loadData = useCallback(async () => {
+    if (!activeOrg) return;
+
     setIsLoading(true);
     try {
       const [apps, seeded, status] = await Promise.all([
-        getAvailableApps(accessToken),
-        getSeededApps(accessToken),
-        getSeedingStatus(accessToken),
+        getAvailableApps(accessToken, activeOrg.orgId),
+        getSeededApps(accessToken, activeOrg.orgId),
+        getSeedingStatus(accessToken, activeOrg.orgId),
       ]);
       setAvailableApps(apps);
       setSeededApps(seeded);
@@ -87,11 +89,13 @@ export default function ToolSeedingPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, activeOrg]);
 
   const checkSeedingStatus = useCallback(async () => {
+    if (!activeOrg) return;
+
     try {
-      const status = await getSeedingStatus(accessToken);
+      const status = await getSeedingStatus(accessToken, activeOrg.orgId);
       setSeedingStatus(status);
 
       if (status.is_running) {
@@ -105,7 +109,7 @@ export default function ToolSeedingPage() {
     } catch (error: unknown) {
       console.error("Failed to check seeding status:", error);
     }
-  }, [accessToken, isSeeding, loadData]);
+  }, [accessToken, activeOrg, isSeeding, loadData]);
 
   useEffect(() => {
     loadData();
@@ -114,6 +118,11 @@ export default function ToolSeedingPage() {
   }, [loadData, checkSeedingStatus]);
 
   const handleSeedTool = async () => {
+    if (!activeOrg) {
+      toast.error("No organization selected");
+      return;
+    }
+
     if (!useCustomPaths && !selectedApp) {
       toast.error("Please select an app to seed");
       return;
@@ -148,7 +157,7 @@ export default function ToolSeedingPage() {
         skip_dry_run: skipDryRun,
       };
 
-      const response = await seedTool(accessToken, request);
+      const response = await seedTool(accessToken, activeOrg.orgId, request);
 
       if (response.success) {
         toast.success(response.message);

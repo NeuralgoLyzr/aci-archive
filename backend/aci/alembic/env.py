@@ -1,6 +1,8 @@
+import json
 import os
 from logging.config import fileConfig
 
+import boto3
 from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
@@ -39,14 +41,25 @@ def _check_and_get_env_variable(name: str) -> str:
     return value
 
 
+def _get_db_password() -> str:
+    """Fetches the DB password from AWS Secrets Manager synchronously."""
+    secret_name = _check_and_get_env_variable("DB_SECRET_NAME")
+    region_name = _check_and_get_env_variable("AWS_REGION_NAME")
+
+    client = boto3.client("secretsmanager", region_name=region_name)
+    response = client.get_secret_value(SecretId=secret_name)
+    secret_dict = json.loads(response["SecretString"])
+    return secret_dict["password"]
+
+
 def _get_db_url() -> str:
     # construct db url from env variables - try ALEMBIC_* first, fallback to SERVER_*
     DB_SCHEME = os.getenv("ALEMBIC_DB_SCHEME") or os.getenv("SERVER_DB_SCHEME") or "postgresql+psycopg"
     DB_USER = os.getenv("ALEMBIC_DB_USER") or os.getenv("SERVER_DB_USER") or "postgres"
-    DB_PASSWORD = os.getenv("ALEMBIC_DB_PASSWORD") or os.getenv("SERVER_DB_PASSWORD") or "password"
     DB_HOST = os.getenv("ALEMBIC_DB_HOST") or os.getenv("SERVER_DB_HOST") or "localhost"
     DB_PORT = os.getenv("ALEMBIC_DB_PORT") or os.getenv("SERVER_DB_PORT") or "5432"
     DB_NAME = os.getenv("ALEMBIC_DB_NAME") or os.getenv("SERVER_DB_NAME") or "my_app_db"
+    DB_PASSWORD = _get_db_password()
     return f"{DB_SCHEME}://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 

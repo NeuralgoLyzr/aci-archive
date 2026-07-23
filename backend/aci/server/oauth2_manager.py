@@ -52,6 +52,7 @@ class OAuth2Manager:
                 (e.g., Oracle IDCS — redirect_uri is only expected there for public clients).
                 Defaults to True.
         """
+        
         self.app_name = app_name
         self.client_id = client_id
         self.client_secret = client_secret

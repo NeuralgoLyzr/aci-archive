@@ -18,7 +18,11 @@ ENV PYTHONPATH=/workdir
 COPY ./aci/server /workdir/aci/server
 COPY ./aci/common /workdir/aci/common
 COPY ./aci/cli /workdir/aci/cli
+COPY ./aci/alembic /workdir/aci/alembic
 COPY ./aci/__init__.py /workdir/aci/__init__.py
+
+# Copy alembic.ini for database migrations
+COPY ./alembic.ini /workdir/alembic.ini
 
 # Copy mock files for local development/testing (only if needed)
 COPY ./mock /workdir/mock
@@ -34,3 +38,4 @@ COPY ./start.sh /workdir/start.sh
 RUN chmod +x /workdir/start.sh
 
 CMD ["/workdir/start.sh"]
+
