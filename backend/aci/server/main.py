@@ -56,7 +56,8 @@ setup_logging(
     environment=config.ENVIRONMENT,
 )
 
-stripe.api_key = config.STRIPE_SECRET_KEY
+if config.STRIPE_SECRET_KEY:
+    stripe.api_key = config.STRIPE_SECRET_KEY
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
@@ -130,7 +131,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(InterceptorMiddleware)
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=[config.APPLICATION_LOAD_BALANCER_DNS])
+if config.APPLICATION_LOAD_BALANCER_DNS:
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=[config.APPLICATION_LOAD_BALANCER_DNS])
 
 
 # NOTE: generic exception handler (type Exception) for all exceptions doesn't work

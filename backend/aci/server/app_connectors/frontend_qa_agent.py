@@ -336,6 +336,9 @@ async def _evaluate_and_update_database(url: str, evaluation_id: UUID) -> None:
 
 
 async def _evaluate_website_with_browser_use(url: str) -> str | None:
+    if not config.ANTHROPIC_API_KEY:
+        return None
+
     llm = ChatAnthropic(
         model=config.ANTHROPIC_MODEL_FOR_FRONTEND_QA_AGENT, api_key=config.ANTHROPIC_API_KEY
     )

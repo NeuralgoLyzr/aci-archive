@@ -51,6 +51,9 @@ async def query(
     if not q or not q.strip():
         raise ACIException(title="Invalid query", message="Query cannot be empty", error_code=400)
 
+    if not config.VECTOR_DB_FULL_URL:
+        raise ACIException(title="Not configured", message="Vector DB is not configured", error_code=503)
+
     try:
         with utils.create_db_session(config.VECTOR_DB_FULL_URL) as db_session:
             try:

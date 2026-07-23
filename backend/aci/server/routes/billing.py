@@ -185,6 +185,9 @@ async def handle_stripe_webhook(
     db_session: Annotated[Session, Depends(deps.yield_db_session)],
     stripe_signature: str = Header(None),
 ) -> None:
+    if not config.STRIPE_WEBHOOK_SIGNING_SECRET:
+        raise BillingError(error_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+
     payload = await request.body()
     event = None
 

@@ -47,6 +47,9 @@ GROUP BY name
 ORDER BY value DESC;
     """
 
+    if not config.LOGFIRE_READ_TOKEN:
+        return []
+
     async with AsyncLogfireQueryClient(read_token=config.LOGFIRE_READ_TOKEN) as client:
         json_rows = await client.query_json_rows(
             sql=query, min_timestamp=datetime.now() - timedelta(days=7)
@@ -61,6 +64,9 @@ async def get_function_usage_distribution(
     api_key_ids_sql_list = _get_project_api_key_ids_sql_list(context)
 
     if not api_key_ids_sql_list:
+        return []
+
+    if not config.LOGFIRE_READ_TOKEN:
         return []
 
     query = f"""
@@ -90,6 +96,9 @@ async def get_app_usage_timeseries(
     api_key_ids_sql_list = _get_project_api_key_ids_sql_list(context)
 
     if not api_key_ids_sql_list:
+        return []
+
+    if not config.LOGFIRE_READ_TOKEN:
         return []
 
     query = f"""
@@ -135,6 +144,9 @@ async def get_function_usage_timeseries(
     api_key_ids_sql_list = _get_project_api_key_ids_sql_list(context)
 
     if not api_key_ids_sql_list:
+        return []
+
+    if not config.LOGFIRE_READ_TOKEN:
         return []
 
     query = f"""
