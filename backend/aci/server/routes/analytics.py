@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends
 
 try:
     from logfire.experimental.query_client import AsyncLogfireQueryClient
-except ImportError:
-    # An incompatible opentelemetry SDK (e.g. injected by the OTel operator's
-    # auto-instrumentation) can make logfire unimportable; analytics endpoints
-    # then return empty results instead of crashing the server at import time.
+except Exception:
+    # An incompatible opentelemetry SDK or env injected by the OTel operator's
+    # auto-instrumentation can make logfire fail to import (ImportError, or a
+    # ValueError raised while it reads its config); analytics endpoints then
+    # return empty results instead of crashing the server at import time.
     AsyncLogfireQueryClient = None  # type: ignore[assignment, misc]
 
 from aci.common.db import crud

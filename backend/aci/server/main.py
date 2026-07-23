@@ -1,10 +1,17 @@
 from typing import Any
 
 try:
+    # The K8s OTel operator injects OTEL_TRACES_SAMPLER_ARG, which logfire
+    # mis-reads as its float trace_sample_rate; neutralize it before importing.
+    from aci.common.otel_compat import neutralize_incompatible_otel_sampler_env
+
+    neutralize_incompatible_otel_sampler_env()
+
     import logfire
-except ImportError as logfire_import_error:
-    # An incompatible opentelemetry SDK (e.g. injected by the OTel operator's
-    # auto-instrumentation) can make logfire unimportable; run without it.
+except Exception as logfire_import_error:
+    # An incompatible opentelemetry SDK or env injected by the OTel operator's
+    # auto-instrumentation can make logfire fail to import (ImportError, or a
+    # ValueError raised while it reads its config); run without it.
     logfire = None  # type: ignore[assignment]
     print(f"logfire unavailable, continuing without it: {logfire_import_error}")
 import stripe
