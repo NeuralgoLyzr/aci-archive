@@ -1,8 +1,9 @@
 import re
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from aci.common.enums import SecurityScheme, Visibility
 from aci.common.schemas.function import BasicFunctionDefinition, FunctionDetails
@@ -13,8 +14,17 @@ from aci.common.schemas.security_scheme import (
     NoAuthSchemeCredentials,
     OAuth2Scheme,
     OAuth2SchemeCredentials,
+    SecuritySchemesLocations,
     SecuritySchemesPublic,
 )
+
+# Maps each known SecurityScheme to the Pydantic model that validates its config.
+# Extend this dict when adding new scheme types (e.g. http_basic, http_bearer).
+_SCHEME_MODELS: dict[SecurityScheme, type[BaseModel]] = {
+    SecurityScheme.NO_AUTH: NoAuthScheme,
+    SecurityScheme.API_KEY: APIKeyScheme,
+    SecurityScheme.OAUTH2: OAuth2Scheme,
+}
 
 
 class AppUpsert(BaseModel, extra="forbid"):
@@ -34,6 +44,7 @@ class AppUpsert(BaseModel, extra="forbid"):
     ]
 
     @field_validator("name")
+    @classmethod
     def validate_name(cls, v: str) -> str:
         if not re.match(r"^[A-Z0-9_]+$", v) or "__" in v:
             raise ValueError(
@@ -41,24 +52,55 @@ class AppUpsert(BaseModel, extra="forbid"):
             )
         return v
 
-    @field_validator("security_schemes")
+    @field_validator("security_schemes", mode="before")
+    @classmethod
     def validate_security_schemes(
-        cls, v: dict[SecurityScheme, APIKeyScheme | OAuth2Scheme]
-    ) -> dict[SecurityScheme, APIKeyScheme | OAuth2Scheme]:
-        for scheme_type, scheme_config in v.items():
-            if scheme_type == SecurityScheme.API_KEY and not isinstance(
-                scheme_config, APIKeyScheme
-            ):
-                raise ValueError(f"Invalid configuration for API_KEY scheme: {scheme_config}")
-            elif scheme_type == SecurityScheme.OAUTH2 and not isinstance(
-                scheme_config, OAuth2Scheme
-            ):
-                raise ValueError(f"Invalid configuration for OAUTH2 scheme: {scheme_config}")
-            elif scheme_type == SecurityScheme.NO_AUTH and not isinstance(
-                scheme_config, NoAuthScheme
-            ):
-                raise ValueError(f"Invalid configuration for NO_AUTH scheme: {scheme_config}")
-        return v
+        cls, v: Any
+    ) -> dict[SecurityScheme, APIKeyScheme | OAuth2Scheme | NoAuthScheme]:
+        """
+        Validate each security scheme entry against its specific model class.
+
+        Running in mode="before" so we intercept the raw dict before Pydantic's
+        union parser tries all branches and produces noisy multi-branch errors.
+        Returning already-instantiated model objects lets Pydantic accept them
+        without re-running union validation.
+        """
+        if not isinstance(v, dict):
+            raise ValueError("must be a dict")
+
+        valid_types = ", ".join(s.value for s in SecurityScheme)
+        errors: list[str] = []
+        result: dict[SecurityScheme, APIKeyScheme | OAuth2Scheme | NoAuthScheme] = {}
+
+        for key, value in v.items():
+            try:
+                scheme_type = SecurityScheme(key)
+            except ValueError:
+                errors.append(f"{key}: Unknown scheme type. Allowed: {valid_types}")
+                continue
+
+            model_cls = _SCHEME_MODELS.get(scheme_type)
+            if model_cls is None:
+                errors.append(f"{key}: Scheme type '{key}' is not yet supported")
+                continue
+
+            if not isinstance(value, dict):
+                errors.append(f"{key}: must be a dict, got {type(value).__name__}")
+                continue
+
+            try:
+                result[scheme_type] = model_cls.model_validate(value)
+            except ValidationError as e:
+                for err in e.errors():
+                    loc = err["loc"]
+                    field = ".".join(str(p) for p in loc) if loc else None
+                    path = f"{key}.{field}" if field else key
+                    errors.append(f"{path}: {err['msg']}")
+
+        if errors:
+            raise ValueError("; ".join(errors))
+
+        return result
 
 
 class AppEmbeddingFields(BaseModel):
@@ -164,3 +206,15 @@ class AppDetails(BaseModel):
     updated_at: datetime
 
     custom_app: bool
+
+
+class AppSecuritySchemeLocations(BaseModel):
+    """
+    Credential-placement metadata (header/query/body location, name, prefix) for an app's
+    supported security schemes. Deliberately separate from AppDetails.supported_security_schemes,
+    which strips this out — a client that already holds a linked account's real secret needs this
+    to know where to place it in a request, without changing AppDetails' existing contract.
+    """
+
+    app_name: str
+    security_scheme_locations: SecuritySchemesLocations

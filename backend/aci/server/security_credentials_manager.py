@@ -193,6 +193,7 @@ async def _refresh_oauth2_access_token(
             client_id=client_id,
             client_secret=client_secret,
             scope=scope,
+            token_endpoint_auth_method=oauth2_scheme.token_endpoint_auth_method,
         )
 
     # Authorization code flow: use refresh_token

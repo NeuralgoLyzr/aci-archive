@@ -13,7 +13,7 @@ class OAuth2FlowType(StrEnum):
     CLIENT_CREDENTIALS = "client_credentials"
 
 
-class APIKeyScheme(BaseModel):
+class APIKeyScheme(BaseModel, extra="forbid"):
     location: HttpLocation = Field(
         ...,
         description="The location of the API key in the request, e.g., 'header'",
@@ -33,7 +33,7 @@ class APIKeySchemePublic(BaseModel):
     pass
 
 
-class OAuth2Scheme(BaseModel):
+class OAuth2Scheme(BaseModel, extra="forbid"):
     # TODO: consider providing a default value for in_, name, prefix as they are usually the same for most apps
     location: HttpLocation = Field(
         ...,
@@ -101,6 +101,12 @@ class OAuth2Scheme(BaseModel):
         default=True,
         description="Whether to include scope in the token exchange request. Set to false for providers that reject "
         "scope in the authorization_code token exchange, e.g., Oracle IDCS. Defaults to True.",
+    )
+    redirect_uri_in_token_exchange: bool = Field(
+        default=True,
+        description="Whether to include redirect_uri in the authorization_code token exchange request. Set to "
+        "false for providers whose confidential/trusted clients reject redirect_uri in the token exchange "
+        "(it's only expected for public clients that lack Basic auth), e.g., Oracle IDCS. Defaults to True.",
     )
 
 
@@ -286,6 +292,38 @@ class SecuritySchemesPublic(BaseModel):
     api_key: APIKeySchemePublic | None = None
     oauth2: OAuth2SchemePublic | None = None
     no_auth: NoAuthSchemePublic | None = None
+
+
+class APIKeySchemeLocation(BaseModel):
+    """Where to place an api_key credential in a request. No secrets here."""
+
+    location: HttpLocation
+    name: str
+    prefix: str | None = None
+
+
+class OAuth2SchemeLocation(BaseModel):
+    """Where to place an oauth2 access token in a request. No secrets here."""
+
+    location: HttpLocation
+    name: str
+    prefix: str
+
+
+class NoAuthSchemeLocation(BaseModel):
+    pass
+
+
+class SecuritySchemesLocations(BaseModel):
+    """
+    scheme_type -> credential-placement metadata (location/name/prefix), with all other
+    fields (client_id, client_secret, scope, ...) filtered out via each model's default
+    extra="ignore" behavior — same mechanism SecuritySchemesPublic above relies on.
+    """
+
+    api_key: APIKeySchemeLocation | None = None
+    oauth2: OAuth2SchemeLocation | None = None
+    no_auth: NoAuthSchemeLocation | None = None
 
 
 class SecuritySchemeOverrides(BaseModel, extra="forbid"):

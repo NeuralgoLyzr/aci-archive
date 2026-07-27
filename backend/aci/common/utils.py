@@ -215,11 +215,17 @@ def format_to_screaming_snake_case(name: str) -> str:
 # TODO: fine tune the pool settings
 @cache
 def get_db_engine(db_url: str) -> Engine:
+    # Pool sizing is env-tunable so prod can be scaled without a code change.
+    # NOTE: total connections = (pool_size + max_overflow) * number of processes.
+    # Keep (pool_size + max_overflow) * uvicorn_workers well under Postgres max_connections.
+    pool_size = int(os.getenv("DB_POOL_SIZE", "20"))
+    max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "40"))
+    pool_timeout = int(os.getenv("DB_POOL_TIMEOUT", "10"))
     return create_engine(
         db_url,
-        pool_size=10,
-        max_overflow=10,
-        pool_timeout=30,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_timeout=pool_timeout,
         pool_recycle=3600,  # recycle connections after 1 hour
         pool_pre_ping=True,
     )

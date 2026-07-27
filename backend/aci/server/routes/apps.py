@@ -10,11 +10,12 @@ from aci.common.logging_setup import get_logger
 from aci.common.schemas.app import (
     AppBasic,
     AppDetails,
+    AppSecuritySchemeLocations,
     AppsList,
     AppsSearch,
 )
 from aci.common.schemas.function import BasicFunctionDefinition, FunctionDetails
-from aci.common.schemas.security_scheme import SecuritySchemesPublic
+from aci.common.schemas.security_scheme import SecuritySchemesLocations, SecuritySchemesPublic
 from aci.common.utils import get_lyzr_api_key_id
 from aci.server import config
 from aci.server import dependencies as deps
@@ -70,6 +71,41 @@ async def list_apps(
         response.append(app_details)
 
     return response
+
+
+@router.get("/security-scheme-locations", response_model=list[AppSecuritySchemeLocations])
+async def list_app_security_scheme_locations(
+    context: Annotated[deps.RequestContext, Depends(deps.get_request_context)],
+    query_params: Annotated[AppsList, Query()],
+) -> list[AppSecuritySchemeLocations]:
+    """
+    Get credential-placement metadata (header/query/body location, name, prefix) for each app's
+    supported security schemes.
+
+    Deliberately separate from GET /v1/apps and GET /v1/apps/{app_name}, whose
+    supported_security_schemes strips this out — a client that already holds a linked account's
+    real secret (e.g. via GET /v1/linked-accounts/{id}/credentials) needs this to know where to
+    place it in an outbound request. Zero change to those existing routes' responses.
+
+    Note: registered ahead of GET /{app_name} below so "security-scheme-locations" is never
+    matched as an app_name path parameter.
+    """
+    apps = crud.apps.get_apps(
+        context.db_session,
+        context.project.visibility_access == Visibility.PUBLIC,
+        True,
+        query_params.app_names,
+        query_params.limit,
+        query_params.offset,
+        api_key_id=context.api_key_id,
+    )
+    return [
+        AppSecuritySchemeLocations(
+            app_name=app.name,
+            security_scheme_locations=SecuritySchemesLocations.model_validate(app.security_schemes),
+        )
+        for app in apps
+    ]
 
 
 @router.get("/search", response_model_exclude_none=True)

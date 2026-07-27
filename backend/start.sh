@@ -23,4 +23,6 @@ if [ "$(echo "${IS_ENTERPRISE_DEPLOYMENT:-false}" | tr '[:upper:]' '[:lower:]')"
 fi
 
 # Start the application
-exec uvicorn aci.server.main:app --proxy-headers --forwarded-allow-ips=* --host "$BIND_HOST" --port "$BIND_PORT" --no-access-log
+# UVICORN_WORKERS is optional (default 1). Each worker gets its own DB pool, so
+# keep UVICORN_WORKERS * (DB_POOL_SIZE + DB_MAX_OVERFLOW) < Postgres max_connections.
+exec uvicorn aci.server.main:app --proxy-headers --forwarded-allow-ips=* --host "$BIND_HOST" --port "$BIND_PORT" --no-access-log --workers "${UVICORN_WORKERS:-1}"

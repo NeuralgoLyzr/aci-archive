@@ -27,6 +27,7 @@ class OAuth2Manager:
         token_endpoint_auth_method: str | None = None,
         pkce_enabled: bool = True,
         scope_in_token_exchange: bool = True,
+        redirect_uri_in_token_exchange: bool = True,
     ):
         """
         Initialize the OAuth2Manager
@@ -46,7 +47,12 @@ class OAuth2Manager:
                 Defaults to True so all existing apps continue using PKCE unchanged.
             scope_in_token_exchange: Set to False for providers that reject scope in the
                 authorization_code token exchange (e.g., Oracle IDCS). Defaults to True.
+            redirect_uri_in_token_exchange: Set to False for providers whose confidential/trusted
+                clients reject redirect_uri in the authorization_code token exchange
+                (e.g., Oracle IDCS — redirect_uri is only expected there for public clients).
+                Defaults to True.
         """
+        
         self.app_name = app_name
         self.client_id = client_id
         self.client_secret = client_secret
@@ -57,6 +63,7 @@ class OAuth2Manager:
         self.token_endpoint_auth_method = token_endpoint_auth_method
         self.pkce_enabled = pkce_enabled
         self.scope_in_token_exchange = scope_in_token_exchange
+        self.redirect_uri_in_token_exchange = redirect_uri_in_token_exchange
 
         # TODO: need to close the client after use
         # Add an aclose() helper (or implement __aenter__/__aexit__) and make callers invoke it during shutdown.
@@ -140,20 +147,61 @@ class OAuth2Manager:
         Returns:
             Token response dictionary
         """
+        effective_redirect_uri = redirect_uri if self.redirect_uri_in_token_exchange else None
+        effective_code_verifier = code_verifier if self.pkce_enabled else None
+        effective_scope = self.scope if self.scope_in_token_exchange else None
+
+        logger.info(
+            f"[fetch_token] attempting authorization_code token exchange, "
+            f"app_name={self.app_name}, access_token_url={self.access_token_url}, "
+            f"token_endpoint_auth_method={self.token_endpoint_auth_method}, "
+            f"pkce_enabled={self.pkce_enabled}, "
+            f"scope_in_token_exchange={self.scope_in_token_exchange}, "
+            f"redirect_uri_in_token_exchange={self.redirect_uri_in_token_exchange}, "
+            f"redirect_uri_sent={effective_redirect_uri}, "
+            f"scope_sent={effective_scope}, "
+            f"code_verifier_sent={effective_code_verifier is not None}, "
+            # NOTE: this is the single-use, short-lived authorization code (not an access/refresh
+            # token), and only its first 8 chars are logged, purely to correlate log lines with a
+            # specific exchange attempt without exposing the full code.
+            f"code_prefix={code[:8]}..."
+        )
+
         try:
             token = cast(
                 dict[str, Any],
                 await self.oauth2_client.fetch_token(
                     self.access_token_url,
-                    redirect_uri=redirect_uri,
+                    redirect_uri=effective_redirect_uri,
                     code=code,
-                    code_verifier=code_verifier if self.pkce_enabled else None,
-                    scope=self.scope if self.scope_in_token_exchange else None,
+                    code_verifier=effective_code_verifier,
+                    scope=effective_scope,
                 ),
+            )
+            logger.info(
+                f"[fetch_token] token exchange succeeded, app_name={self.app_name}, "
+                f"token_type={token.get('token_type')}, has_refresh_token={'refresh_token' in token}"
             )
             return token
         except Exception as e:
-            logger.error(f"Failed to fetch access token, app_name={self.app_name}, error={e}")
+            # authlib's OAuth2Error subclasses (e.g. InvalidRequestError) carry the parsed
+            # error/description/status_code from the provider's token endpoint response.
+            provider_error = getattr(e, "error", None)
+            provider_description = getattr(e, "description", None)
+            provider_status_code = getattr(e, "status_code", None)
+            logger.error(
+                f"[fetch_token] token exchange failed, app_name={self.app_name}, "
+                f"access_token_url={self.access_token_url}, "
+                f"token_endpoint_auth_method={self.token_endpoint_auth_method}, "
+                f"pkce_enabled={self.pkce_enabled}, "
+                f"scope_in_token_exchange={self.scope_in_token_exchange}, "
+                f"redirect_uri_in_token_exchange={self.redirect_uri_in_token_exchange}, "
+                f"redirect_uri_sent={effective_redirect_uri}, "
+                f"scope_sent={effective_scope}, "
+                f"provider_error={provider_error}, provider_description={provider_description}, "
+                f"provider_status_code={provider_status_code}, "
+                f"exception_type={type(e).__name__}, error={e}"
+            )
             raise OAuth2Error("failed to fetch access token") from e
 
     async def refresh_token(
@@ -222,22 +270,46 @@ class OAuth2Manager:
         client_id: str,
         client_secret: str,
         scope: str,
+        token_endpoint_auth_method: str | None = None,
     ) -> dict[str, Any]:
-        """Exchange client_id + client_secret for an access token using client_credentials grant."""
+        """Exchange client_id + client_secret for an access token using client_credentials grant.
+
+        token_endpoint_auth_method:
+          - "client_secret_basic": credentials sent as HTTP Basic Auth header (e.g. Commercetools)
+          - None / anything else: credentials sent in the request body (default, backward-compatible)
+        """
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
-                data: dict[str, str] = {
-                    "grant_type": "client_credentials",
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                }
+                data: dict[str, str] = {"grant_type": "client_credentials"}
+                httpx_auth = None
+
+                if token_endpoint_auth_method == "client_secret_basic":
+                    # Credentials go in Authorization: Basic header, not the body
+                    httpx_auth = (client_id, client_secret)
+                    logger.info(
+                        f"[fetch_client_credentials_token] using client_secret_basic (HTTP Basic Auth), "
+                        f"token_url={token_url}, scope={scope}"
+                    )
+                else:
+                    # Default (client_secret_post): credentials in request body
+                    data["client_id"] = client_id
+                    data["client_secret"] = client_secret
+                    logger.info(
+                        f"[fetch_client_credentials_token] using client_secret_post (body), "
+                        f"token_url={token_url}, scope={scope}"
+                    )
+
                 if scope:
                     data["scope"] = scope
 
-                response = await client.post(token_url, data=data)
+                response = await client.post(token_url, data=data, auth=httpx_auth)
+                logger.info(
+                    f"[fetch_client_credentials_token] response status={response.status_code}, "
+                    f"token_url={token_url}"
+                )
                 if not response.is_success:
                     logger.error(
-                        f"client_credentials token request failed, "
+                        f"[fetch_client_credentials_token] token request failed, "
                         f"token_url={token_url}, status={response.status_code}, "
                         f"response_body={response.text}"
                     )
@@ -247,7 +319,7 @@ class OAuth2Manager:
             raise
         except Exception as e:
             logger.error(
-                f"Failed to fetch client_credentials token, token_url={token_url}, error={e}"
+                f"[fetch_client_credentials_token] exception, token_url={token_url}, error={e}"
             )
             raise OAuth2Error("Failed to fetch client_credentials token") from e
 

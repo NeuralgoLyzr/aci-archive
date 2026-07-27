@@ -34,6 +34,7 @@ from aci.common.schemas.linked_accounts import (
     LinkedAccountsList,
     LinkedAccountUpdate,
     LinkedAccountWithCredentials,
+    LinkedAccountWithFullCredentials,
 )
 from aci.common.schemas.security_scheme import (
     APIKeySchemeCredentials,
@@ -515,6 +516,7 @@ async def link_oauth2_account_by_app_id(
         token_endpoint_auth_method=oauth2_scheme.token_endpoint_auth_method,
         pkce_enabled=oauth2_scheme.pkce_enabled,
         scope_in_token_exchange=oauth2_scheme.scope_in_token_exchange,
+        redirect_uri_in_token_exchange=oauth2_scheme.redirect_uri_in_token_exchange,
     )
 
     # create and encode the state payload.
@@ -608,6 +610,7 @@ async def link_oauth2_account(
         token_endpoint_auth_method=oauth2_scheme.token_endpoint_auth_method,
         pkce_enabled=oauth2_scheme.pkce_enabled,
         scope_in_token_exchange=oauth2_scheme.scope_in_token_exchange,
+        redirect_uri_in_token_exchange=oauth2_scheme.redirect_uri_in_token_exchange,
     )
 
     # create and encode the state payload.
@@ -751,16 +754,40 @@ async def linked_accounts_oauth2_callback(
         token_endpoint_auth_method=oauth2_scheme.token_endpoint_auth_method,
         pkce_enabled=oauth2_scheme.pkce_enabled,
         scope_in_token_exchange=oauth2_scheme.scope_in_token_exchange,
+        redirect_uri_in_token_exchange=oauth2_scheme.redirect_uri_in_token_exchange,
     )
 
     path = request.url_for(LINKED_ACCOUNTS_OAUTH2_CALLBACK_ROUTE_NAME).path
     redirect_uri = oauth2_scheme.redirect_url or f"{config.REDIRECT_URI_BASE}{path}"
-    token_response = await oauth2_manager.fetch_token(
-        redirect_uri=redirect_uri,
-        code=code,
-        code_verifier=state.code_verifier,
-    )
-    security_credentials = oauth2_manager.parse_fetch_token_response(token_response)
+    try:
+        token_response = await oauth2_manager.fetch_token(
+            redirect_uri=redirect_uri,
+            code=code,
+            code_verifier=state.code_verifier,
+        )
+    except OAuth2Error as e:
+        logger.exception(
+            f"Token exchange failed during OAuth2 callback, "
+            f"app_name={state.app_name}, "
+            f"app_id={state.app_id}, "
+            f"project_id={state.project_id}, "
+            f"linked_account_owner_id={state.linked_account_owner_id}, "
+            f"access_token_url={oauth2_scheme.access_token_url}, "
+            f"redirect_uri={redirect_uri}"
+        )
+        raise
+
+    try:
+        security_credentials = oauth2_manager.parse_fetch_token_response(token_response)
+    except OAuth2Error as e:
+        logger.exception(
+            f"Failed to parse token response during OAuth2 callback, "
+            f"app_name={state.app_name}, "
+            f"app_id={state.app_id}, "
+            f"project_id={state.project_id}, "
+            f"linked_account_owner_id={state.linked_account_owner_id}"
+        )
+        raise
 
     # if the linked account already exists, update it, otherwise create a new one
     # TODO: consider separating the logic for updating and creating a linked account or give warning to clients
@@ -906,12 +933,21 @@ async def link_oauth2_client_credentials_account(
     else:
         token_url = f"https://login.microsoftonline.com/{body.tenant_id}/oauth2/v2.0/token"
 
+    logger.info(
+        f"[client_credentials] app={body.app_name}, "
+        f"token_url={token_url}, "
+        f"token_endpoint_auth_method={oauth2_scheme.token_endpoint_auth_method}, "
+        f"scope={scope}, "
+        f"client_id_source={'body' if body.client_id else 'scheme'}"
+    )
+
     # Fetch token using client_credentials grant
     token_response = await OAuth2Manager.fetch_client_credentials_token(
         token_url=token_url,
         client_id=client_id,
         client_secret=client_secret,
         scope=scope,
+        token_endpoint_auth_method=oauth2_scheme.token_endpoint_auth_method,
     )
 
     expires_at = scm.resolve_oauth2_expires_at(
@@ -992,6 +1028,56 @@ async def get_linked_account(
     - linked_account_id uniquely identifies a linked account across the platform.
     """
     logger.info(f"Get linked account, linked_account_id={linked_account_id}")
+    # validations
+    linked_account = crud.linked_accounts.get_linked_account_by_id_under_project(
+        context.db_session, linked_account_id, context.project.id
+    )
+    if not linked_account:
+        logger.error(f"Linked account not found, linked_account_id={linked_account_id}")
+        raise LinkedAccountNotFound(f"linked account={linked_account_id} not found")
+
+    # Get the app configuration to check and refresh credentials if needed
+    app_configuration = crud.app_configurations.get_app_configuration(
+        context.db_session, context.project.id, linked_account.app.name
+    )
+    if not app_configuration:
+        logger.error(
+            "app configuration not found",
+        )
+        raise AppConfigurationNotFound(
+            f"app configuration for app={linked_account.app.name} not found"
+        )
+
+    security_credentials_response = await scm.get_security_credentials(
+        linked_account.app, app_configuration, linked_account
+    )
+    scm.update_security_credentials(
+        context.db_session, linked_account.app, linked_account, security_credentials_response
+    )
+    logger.info(
+        f"Fetched security credentials for linked account, linked_account_id={linked_account.id}, "
+        f"is_updated={security_credentials_response.is_updated}"
+    )
+    context.db_session.commit()
+
+    return linked_account
+
+
+@router.get(
+    "/{linked_account_id}/credentials",
+    response_model=LinkedAccountWithFullCredentials,
+    response_model_exclude_none=True,
+)
+async def get_linked_account_full_credentials(
+    context: Annotated[deps.RequestContext, Depends(deps.get_request_context)],
+    linked_account_id: UUID,
+) -> LinkedAccount:
+    """
+    Get a linked account's full, unredacted credentials by its id.
+    Unlike GET /{linked_account_id}, this also returns the raw secret_key for
+    api_key-based linked accounts, not just oauth2 access/refresh tokens.
+    """
+    logger.info(f"Get linked account full credentials, linked_account_id={linked_account_id}")
     # validations
     linked_account = crud.linked_accounts.get_linked_account_by_id_under_project(
         context.db_session, linked_account_id, context.project.id
