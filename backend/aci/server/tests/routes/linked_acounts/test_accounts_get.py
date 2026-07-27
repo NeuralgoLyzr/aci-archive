@@ -98,9 +98,11 @@ def test_get_linked_account_with_oauth2_credentials(
     linked_account = response.json()
     security_credentials: dict[str, str] = linked_account["security_credentials"]
     assert security_credentials["access_token"], "OAuth2 credentials should contain access_token"
-    # NOTE: expires_at and refresh_token are optional, but they exist in this mock linked account
+    # NOTE: expires_at is optional, but it exists in this mock linked account
     assert security_credentials["expires_at"], "OAuth2 credentials should contain expires_at"
-    assert security_credentials["refresh_token"], "OAuth2 credentials should contain refresh_token"
+    # SECURITY: refresh_token and client_secret must never be exposed to clients
+    assert "refresh_token" not in security_credentials
+    assert "client_secret" not in security_credentials
 
 
 def test_get_linked_account_with_expired_oauth2_credentials(
@@ -141,5 +143,7 @@ def test_get_linked_account_with_expired_oauth2_credentials(
         assert int(security_credentials["expires_at"]) == (
             mock_current_time + int(mock_refresh_response["expires_in"])
         )
-        assert security_credentials["refresh_token"] == mock_refresh_response["refresh_token"]
+        # SECURITY: refresh_token and client_secret must never be exposed to clients
+        assert "refresh_token" not in security_credentials
+        assert "client_secret" not in security_credentials
         mock_refresh.assert_called_once()

@@ -8,7 +8,6 @@ from aci.common.enums import APIKeyStatus
 
 class APIKeyPublic(BaseModel):
     id: UUID
-    key: str
     agent_id: UUID
     status: APIKeyStatus
 
@@ -16,3 +15,13 @@ class APIKeyPublic(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class APIKeyWithSecret(APIKeyPublic):
+    """APIKeyPublic plus the plaintext key.
+
+    Only for creation-time responses (project/agent creation), where the caller
+    must capture the key once. Never use as the response model for read endpoints.
+    """
+
+    key: str

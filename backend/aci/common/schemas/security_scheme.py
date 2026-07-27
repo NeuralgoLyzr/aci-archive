@@ -251,17 +251,13 @@ class OAuth2SchemeCredentials(BaseModel):
 class OAuth2SchemeCredentialsLimited(BaseModel):
     """Limited OAuth2 credentials to expose to the client directly.
 
-    client_id and client_secret are included so that downstream clients can
-    use the refresh_token to mint tokens for additional resource audiences
-    that ACI does not directly broker (e.g. SharePoint REST in addition to
-    the Microsoft Graph access_token ACI manages on their behalf).
+    SECURITY: client_secret and refresh_token must never be exposed here.
+    Clients only get the current access_token; token refresh is brokered by ACI.
     """
 
     access_token: str
     expires_at: int | None = None
-    refresh_token: str | None = None
     client_id: str | None = None
-    client_secret: str | None = None
 
 
 class NoAuthSchemeCredentials(BaseModel, extra="forbid"):

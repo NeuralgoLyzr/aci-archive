@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from aci.common.db import crud
 from aci.common.db.sql_models import Agent, APIKey, App, Project
-from aci.common.schemas.agent import AgentCreate, AgentPublic, AgentUpdate
+from aci.common.schemas.agent import AgentCreate, AgentPublic, AgentPublicWithAPIKeys, AgentUpdate
 from aci.server import config
 from aci.server.tests.conftest import DummyUser
 
@@ -30,7 +30,7 @@ def test_create_agent(
         headers={"Authorization": f"Bearer {dummy_user.access_token}"},
     )
     assert response.status_code == status.HTTP_200_OK
-    agent_public = AgentPublic.model_validate(response.json())
+    agent_public = AgentPublicWithAPIKeys.model_validate(response.json())
     assert agent_public.name == body.name
     assert agent_public.description == body.description
     assert agent_public.project_id == dummy_project_1.id
@@ -41,7 +41,7 @@ def test_create_agent(
     ).scalar_one_or_none()
 
     assert agent is not None
-    assert agent_public.model_dump() == AgentPublic.model_validate(agent).model_dump()
+    assert agent_public.model_dump() == AgentPublicWithAPIKeys.model_validate(agent).model_dump()
 
     # check api keys
     api_key = db_session.execute(

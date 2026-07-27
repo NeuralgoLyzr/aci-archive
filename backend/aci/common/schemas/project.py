@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from aci.common.enums import Visibility
-from aci.common.schemas.agent import AgentPublic
+from aci.common.schemas.agent import AgentPublic, AgentPublicWithAPIKeys
 
 
 class ProjectCreate(BaseModel):
@@ -39,3 +39,9 @@ class ProjectPublic(BaseModel):
     agents: list[AgentPublic]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectPublicWithAPIKeys(ProjectPublic):
+    """ProjectPublic plus plaintext agent API keys. Only for the creation response."""
+
+    agents: list[AgentPublicWithAPIKeys]

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
-from aci.common.schemas.apikey import APIKeyPublic
+from aci.common.schemas.apikey import APIKeyPublic, APIKeyWithSecret
 
 MAX_INSTRUCTION_LENGTH = 5000
 
@@ -52,3 +52,9 @@ class AgentPublic(BaseModel):
     api_keys: list[APIKeyPublic]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AgentPublicWithAPIKeys(AgentPublic):
+    """AgentPublic plus plaintext API keys. Only for creation-time responses."""
+
+    api_keys: list[APIKeyWithSecret]

@@ -12,8 +12,13 @@ from aci.common.exceptions import (
     ProjectNotFound,
 )
 from aci.common.logging_setup import get_logger
-from aci.common.schemas.agent import AgentCreate, AgentPublic, AgentUpdate
-from aci.common.schemas.project import ProjectCreate, ProjectPublic, ProjectUpdate
+from aci.common.schemas.agent import AgentCreate, AgentPublic, AgentPublicWithAPIKeys, AgentUpdate
+from aci.common.schemas.project import (
+    ProjectCreate,
+    ProjectPublic,
+    ProjectPublicWithAPIKeys,
+    ProjectUpdate,
+)
 from aci.server import config, quota_manager
 from aci.server import dependencies as deps
 
@@ -25,7 +30,7 @@ logger = get_logger(__name__)
 
 
 # TODO: Once member has been introduced change the ACL to require_org_member_with_minimum_role
-@router.post("", response_model=ProjectPublic, include_in_schema=True)
+@router.post("", response_model=ProjectPublicWithAPIKeys, include_in_schema=True)
 async def create_project(
     body: ProjectCreate,
     # user: Annotated[User, Depends(auth.require_user)],
@@ -48,17 +53,18 @@ async def create_project(
         custom_instructions={},
     )
     db_session.commit()
-    
+
     logger.info(f"Created project, project_id={project.id}, org_id={body.org_id}")
-    
-    # Convert to ProjectPublic model to avoid DetachedInstanceError
-    from aci.common.schemas.project import ProjectPublic
-    from aci.common.schemas.agent import AgentPublic
-    from aci.common.schemas.apikey import APIKeyPublic
-    
+
+    # Convert to ProjectPublicWithAPIKeys model to avoid DetachedInstanceError.
+    # This is the only endpoint that returns the plaintext API key: callers must
+    # capture it here, read endpoints never return it again.
+    from aci.common.schemas.apikey import APIKeyWithSecret
+
+
     # Load the agent that was created
     agents = crud.projects.get_agents_by_project(db_session, project.id)
-    
+
     # Convert agents to AgentPublic models
     agent_publics = []
     for agent in agents:
@@ -67,9 +73,9 @@ async def create_project(
         try:
             api_key = crud.projects.get_api_key_by_agent_id(db_session, agent.id)
             if api_key:
-                api_key_public = APIKeyPublic(
+                api_key_public = APIKeyWithSecret(
                     id=api_key.id,
-                    key=api_key.key,  # Include the decrypted API key
+                    key=api_key.key,  # Returned once at creation only
                     agent_id=api_key.agent_id,
                     status=api_key.status,
                     created_at=api_key.created_at,
@@ -79,9 +85,9 @@ async def create_project(
         except Exception as e:
             logger.error(f"Error loading API key for agent {agent.id}: {e}")
             # Continue without API key - this allows the project creation to succeed
-        
-        # Create AgentPublic model
-        agent_public = AgentPublic(
+
+        # Create AgentPublicWithAPIKeys model
+        agent_public = AgentPublicWithAPIKeys(
             id=agent.id,
             project_id=agent.project_id,
             name=agent.name,
@@ -93,9 +99,9 @@ async def create_project(
             api_keys=api_key_publics,
         )
         agent_publics.append(agent_public)
-    
-    # Create ProjectPublic model
-    project_public = ProjectPublic(
+
+    # Create ProjectPublicWithAPIKeys model
+    project_public = ProjectPublicWithAPIKeys(
         id=project.id,
         org_id=project.org_id,
         name=project.name,
@@ -109,7 +115,7 @@ async def create_project(
         updated_at=project.updated_at,
         agents=agent_publics,
     )
-    
+
     return project_public
 
 
@@ -128,13 +134,13 @@ async def get_projects(
 
     try:
         projects = crud.projects.get_projects_by_org(db_session, org_id)
-        
+
         # Return a response with agents but handle Unicode errors gracefully
         simplified_projects = []
         for project in projects:
             # Load agents for this project
             agents = crud.projects.get_agents_by_project(db_session, project.id)
-            
+
             # Convert agents to simple dict format with error handling for API keys
             agent_list = []
             for agent in agents:
@@ -143,20 +149,21 @@ async def get_projects(
                 try:
                     api_key = crud.projects.get_api_key_by_agent_id(db_session, agent.id)
                     if api_key:
+                        # NOTE: the plaintext key is intentionally NOT included here;
+                        # it is only returned once by the project creation endpoint.
                         api_key_dict = {
                             "id": str(api_key.id),
-                            "key": api_key.key,  # Include the decrypted API key
                             "agent_id": str(api_key.agent_id),
                             "status": api_key.status.value,
                             "created_at": api_key.created_at.isoformat() if api_key.created_at else None,
                             "updated_at": api_key.updated_at.isoformat() if api_key.updated_at else None,
                         }
-                        
+
                         api_keys_list.append(api_key_dict)
                 except Exception as e:
                     logger.error(f"Error loading API key for agent {agent.id}: {e}")
                     # Continue without API key - this allows the project to load
-                
+
                 agent_dict = {
                     "id": str(agent.id),
                     "project_id": str(agent.project_id),
@@ -169,7 +176,7 @@ async def get_projects(
                     "api_keys": api_keys_list
                 }
                 agent_list.append(agent_dict)
-            
+
             simplified_project = {
                 "id": str(project.id),
                 "org_id": project.org_id,
@@ -185,9 +192,9 @@ async def get_projects(
                 "agents": agent_list
             }
             simplified_projects.append(simplified_project)
-        
+
         return simplified_projects
-        
+
     except Exception as e:
         logger.error(f"Error getting projects: {e}")
         # Return empty list if there's an error, so frontend can still load
@@ -258,7 +265,7 @@ async def update_project(
     return updated_project
 
 
-@router.post("/{project_id}/agents", response_model=AgentPublic, include_in_schema=True)
+@router.post("/{project_id}/agents", response_model=AgentPublicWithAPIKeys, include_in_schema=True)
 async def create_agent(
     project_id: UUID,
     body: AgentCreate,
