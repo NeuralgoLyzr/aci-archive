@@ -1,0 +1,105 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Build & Push a service image to the PRE-PROD ECR (manual, paste-and-run).
+#
+# HOW TO USE:
+#   1. Copy this file into a service repo at:  .github/workflows/build-push-preprod.yml
+#   2. Commit it to any branch (e.g. enterprise/merge_dev_to_prod).
+#   3. GitHub → Actions tab → "Build & Push → Pre-prod ECR" → "Run workflow".
+#   4. Fill the inputs (ECR repo name + Dockerfile) and run.
+#
+# No repo secret and no GitHub Environment are required:
+#   auth is OIDC into an IAM role that already trusts these 22 repos.
+#   The role ARN below is NOT sensitive (safe to commit).
+#
+# For repos with a second image (e.g. rag → studio-rag + studio-rag-tasks),
+# fill the optional "worker_*" inputs too and both build in one run.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Build & Push → Pre-prod ECR
+
+on:
+  workflow_dispatch:
+    inputs:
+      service_ecr:
+        description: "Primary ECR repo name (e.g. studio-rag)"
+        required: true
+      service_dockerfile:
+        description: "Primary Dockerfile path"
+        required: true
+        default: Dockerfile
+      worker_ecr:
+        description: "Optional 2nd/worker ECR repo (e.g. studio-rag-tasks) — blank if none"
+        required: false
+        default: ""
+      worker_dockerfile:
+        description: "Optional 2nd/worker Dockerfile path"
+        required: false
+        default: ""
+      image_tag:
+        description: "Image tag (blank = short git SHA)"
+        required: false
+        default: ""
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+
+env:
+  AWS_REGION:   us-east-1
+  ECR_REGISTRY: 419197236468.dkr.ecr.us-east-1.amazonaws.com
+  ROLE_ARN:     arn:aws:iam::419197236468:role/lyzr-studio-preprod-github-actions-ecr-push
+
+jobs:
+  build-push:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            echo "tag=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push primary image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ github.event.inputs.service_dockerfile }}
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ github.event.inputs.service_ecr }}:${{ steps.tag.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/${{ github.event.inputs.service_ecr }}:latest
+
+      - name: Build & push worker image (optional)
+        if: ${{ github.event.inputs.worker_ecr != '' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ github.event.inputs.worker_dockerfile }}
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ github.event.inputs.worker_ecr }}:${{ steps.tag.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/${{ github.event.inputs.worker_ecr }}:latest
+
+      - name: Summary
+        run: |
+          echo "Pushed ${{ env.ECR_REGISTRY }}/${{ github.event.inputs.service_ecr }}:${{ steps.tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${{ github.event.inputs.worker_ecr }}" ]; then
+            echo "Pushed ${{ env.ECR_REGISTRY }}/${{ github.event.inputs.worker_ecr }}:${{ steps.tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
