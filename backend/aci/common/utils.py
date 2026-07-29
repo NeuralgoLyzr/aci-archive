@@ -144,19 +144,44 @@ async def get_db_password() -> str:
     return await _fetch_db_password(secret_name)
 
 
+def _build_sqlalchemy_url(
+    scheme: str, user: str, password: str, host: str, port: str, db_name: str
+) -> str:
+    """Build a SQLAlchemy DB URL via cloudrift's SQL backend.
+
+    Routing URL construction through cloudrift (instead of an f-string) keeps ACI
+    consistent with the other Lyzr services and percent-encodes the credentials,
+    so a password containing URL-special characters can't corrupt the DSN.
+    `scheme` (e.g. "postgresql+psycopg") is passed through as the driver.
+    """
+    from cloudrift.sql import get_sql
+
+    backend = get_sql(
+        "postgres",
+        "from_credentials",
+        host=host,
+        port=int(port),
+        user=user,
+        password=password,
+        database=db_name,
+    )
+    return backend.sqlalchemy_url(driver=scheme)
+
+
 def construct_db_url_sync(
     scheme: str, user: str, host: str, port: str, db_name: str
 ) -> str:
     """
-    Constructs the database URL by fetching the password from AWS Secrets Manager synchronously.
-    The result is cached to avoid repeated API calls.
+    Constructs the database URL, fetching the password via the cloudrift secrets
+    backend (see get_db_password_sync). The result is cached to avoid repeated
+    API calls.
     """
     global _db_url_cache
     if _db_url_cache is not None:
         return _db_url_cache
 
     password = get_db_password_sync()
-    _db_url_cache = f"{scheme}://{user}:{password}@{host}:{port}/{db_name}"
+    _db_url_cache = _build_sqlalchemy_url(scheme, user, password, host, port, db_name)
     return _db_url_cache
 
 
@@ -164,15 +189,15 @@ async def construct_db_url(
     scheme: str, user: str, host: str, port: str, db_name: str
 ) -> str:
     """
-    Constructs the database URL by fetching the password from AWS Secrets Manager asynchronously.
-    The result is cached to avoid repeated API calls.
+    Constructs the database URL, fetching the password via the cloudrift secrets
+    backend (see get_db_password). The result is cached to avoid repeated API calls.
     """
     global _db_url_cache
     if _db_url_cache is not None:
         return _db_url_cache
 
     password = await get_db_password()
-    _db_url_cache = f"{scheme}://{user}:{password}@{host}:{port}/{db_name}"
+    _db_url_cache = _build_sqlalchemy_url(scheme, user, password, host, port, db_name)
     return _db_url_cache
 
 
