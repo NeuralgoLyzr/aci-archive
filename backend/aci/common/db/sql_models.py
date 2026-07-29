@@ -219,6 +219,10 @@ class Function(Base):
     """
 
     __tablename__ = "functions"
+    # Function names are unique per creator (api_key_id), not globally.
+    __table_args__ = (
+        UniqueConstraint("api_key_id", "name", name="uc_functions_api_key_id_name"),
+    )
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default_factory=uuid4, init=False
@@ -231,9 +235,9 @@ class Function(Base):
     api_key_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True
     )
-    # Note: the function name is unique across the platform and should have app information, e.g., "GITHUB_CLONE_REPO"
-    # ideally this should just be <app name>_<function name> (uppercase)
-    name: Mapped[str] = mapped_column(String(MAX_STRING_LENGTH), nullable=False, unique=True)
+    # name should carry app info, e.g. "GITHUB_CLONE_REPO" (<app>_<function>, uppercase).
+    # Unique per creator (see __table_args__), not globally.
+    name: Mapped[str] = mapped_column(String(MAX_STRING_LENGTH), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
     # if private, the function is only visible to privileged Projects (e.g., useful for internal and A/B testing)
@@ -270,6 +274,11 @@ class Function(Base):
 
 class App(Base):
     __tablename__ = "apps"
+    # App names are unique per creator (api_key_id), not globally: multiple users
+    # can register a custom app with the same name. NULL api_key_id = system app.
+    __table_args__ = (
+        UniqueConstraint("api_key_id", "name", name="uc_apps_api_key_id_name"),
+    )
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default_factory=uuid4, init=False
@@ -279,8 +288,9 @@ class App(Base):
     api_key_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True
     )
-    # Need name to be unique to support globally unique function name.
-    name: Mapped[str] = mapped_column(String(APP_NAME_MAX_LENGTH), nullable=False, unique=True)
+    # Unique per creator (see __table_args__), not globally — multiple users may
+    # register a same-named app.
+    name: Mapped[str] = mapped_column(String(APP_NAME_MAX_LENGTH), nullable=False)
     display_name: Mapped[str] = mapped_column(String(MAX_STRING_LENGTH), nullable=False)
     # provider (or company) of the app, e.g., google, github, or ACI or user (if allow user to create custom apps)
     provider: Mapped[str] = mapped_column(String(MAX_STRING_LENGTH), nullable=False)
