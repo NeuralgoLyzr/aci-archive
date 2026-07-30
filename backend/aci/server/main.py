@@ -16,6 +16,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from aci.server.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from aci.common import platform_api_key
 from aci.common.exceptions import ACIException
 from aci.common.logging_setup import setup_logging
 from aci.server import config
@@ -86,9 +87,15 @@ app = FastAPI(
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    """Initialize database connection on server startup."""
-    await config.get_db_full_url()
+    """Initialize database connection and resolve the platform API key id."""
+    db_url = await config.get_db_full_url()
     logger.info("Database URL initialized")
+
+    # Populates LYZR_API_KEY_ID_DB (api_keys.id of the platform API key) when it is not
+    # already configured: creates the default project + agent on the first boot against a
+    # fresh database, finds the existing one on every later boot. Fails soft - the server
+    # must still start when the DB/schema is not ready yet.
+    platform_api_key.seed_env_from_db(db_url)
 
 
 auth = get_propelauth()
