@@ -222,6 +222,141 @@ When making changes to database models:
    docker compose exec runner alembic downgrade -1
    ```
 
+## Platform API Key ID (`LYZR_API_KEY_ID_DB`)
+
+> [!NOTE]
+> **Nothing to do by default.** The server resolves this itself on startup: it creates the
+> platform project on the first boot against a fresh database and finds the same one on
+> every later boot. The sections below cover what that needs, and how to resolve the value
+> manually for a deployment that was rolled out before this existed.
+
+It is the `api_keys.id` **UUID** of the platform/system API key — *not* the API key secret.
+Platform-seeded apps and functions are stored with `apps.api_key_id = LYZR_API_KEY_ID_DB`.
+The server reads the variable through `aci.common.utils.get_lyzr_api_key_id()` (per call, so
+startup seeding is picked up) and uses it as the fallback owner when resolving
+apps/functions for a caller (`crud.apps`, `crud.functions`, `crud.app_configurations`,
+`crud.linked_accounts`), and to decide whether an app is reported as `custom_app` in
+`GET /v1/apps`. Tool seeding (`POST /v1/tool-seeding/...`) writes newly seeded apps under
+this same id.
+
+If it is unset, the filters degrade to `api_key_id IS NULL` and **no platform tool is
+visible**. If it points at the wrong row, previously seeded tools are hidden and/or
+reported as custom apps.
+
+### Automatic startup seeding
+
+`aci.common.platform_api_key.seed_env_from_db()` runs from the FastAPI startup event
+(`aci/server/main.py`), before the server accepts traffic:
+
+1. `LYZR_API_KEY_ID_DB` already set in the environment → **that value wins**, untouched.
+   The row is looked up once and an error is logged if it does not exist (typo / wrong DB /
+   restored dump), but nothing is overwritten.
+2. Otherwise it looks for the platform API key of `LYZR_PLATFORM_ORG_ID`: the oldest active
+   API key of the oldest project of that org, preferring one named
+   `LYZR_PLATFORM_PROJECT_NAME`. Found → used as-is (**no project is created**).
+3. Nothing found (first boot on a fresh database) → creates the project and its
+   `Default Agent`, which mints the agent's API key. Equivalent to `POST /v1/projects`, but
+   in-process against the DB, since the HTTP API is not up yet at that point.
+4. The resolved UUID is exported into the process environment, so every worker forked by
+   uvicorn and every request handler sees it.
+
+Selection is deterministic (ties broken by id), so **restarts, rolling deploys and extra
+replicas converge on the same API key** and never create a second project. Concurrent first
+boots are serialized with a Postgres transaction-scoped advisory lock keyed on the org, so N
+replicas starting simultaneously against an empty DB still produce exactly one project.
+
+Failures never block startup: the step retries (5 attempts, 2s apart) and then logs
+`Could not resolve LYZR_API_KEY_ID_DB ...` and lets the server boot.
+
+#### What it needs
+
+| Requirement | Notes |
+| --- | --- |
+| Reachable database | Same connection the server uses (`SERVER_DB_*`, or `CLI_DB_*` for the CLI command). Nothing else — no auth, no HTTP, no KMS/PropelAuth/OpenAI. |
+| `projects`, `agents`, `api_keys` tables | i.e. migrations already applied (`alembic upgrade head`, or `RUN_MIGRATIONS=true`). On a brand-new DB where migrations run *after* the server starts, seeding gives up after its retries — restart the server, or run the CLI command below, once the schema exists. |
+| Encryption backend, if configured | Creating the API key writes the encrypted `api_keys.key` column. With `SERVER_ENVIRONMENT=local` or no KMS/Key Vault configured, encryption is skipped; otherwise AWS KMS / Azure Key Vault must be reachable (as for any other write). |
+| Write access on first boot only | Later boots are read-only (a single `SELECT`). |
+
+#### Knobs
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `LYZR_API_KEY_ID_DB` | unset | Explicit value; disables seeding (step 1 above). |
+| `LYZR_API_KEY_ID_AUTO_SEED` | `true` | `false` disables the startup step entirely (logs a warning that platform tools will be invisible). |
+| `LYZR_PLATFORM_ORG_ID` | `00000000-0000-0000-0000-000000000001` | Org that owns the platform project. A synthetic org on purpose: the platform key must not depend on a customer org's lifecycle, nor consume its `SERVER_MAX_PROJECTS_PER_ORG` budget. |
+| `LYZR_PLATFORM_PROJECT_NAME` | `Default Org` | Preferred project name. |
+
+Pin `LYZR_PLATFORM_ORG_ID` (and `LYZR_PLATFORM_PROJECT_NAME`) in the deployment config if
+you want the platform project attached to a specific org — changing it later selects a
+different project and therefore a different `api_key_id`.
+
+### Resolving the value manually
+
+Needed for deployments seeded before this existed, to record the value in a secret store, or
+to check what a deployment resolved.
+
+**Database reachable** (init container, migration job, `docker compose exec`) — same
+find-or-create logic as startup, prints only the UUID:
+
+```bash
+python -m aci.cli ensure-platform-api-key
+# or, read-only: fail instead of creating
+python -m aci.cli ensure-platform-api-key --no-create
+# capture it
+export LYZR_API_KEY_ID_DB=$(python -m aci.cli ensure-platform-api-key)
+```
+
+**Only HTTP reachable** (a deployed URL, no DB access) — `scripts/seed_lyzr_api_key_id.py`
+drives the public API and applies the identical selection rule:
+
+```bash
+# from backend/
+./scripts/seed_lyzr_api_key_id.py \
+  --url https://aci.azure.lyzr.app \
+  --org-id 2c06717b-c034-471a-b7fb-c8e3f5791042
+# -> 3b9dffb6-d232-4876-9eb8-f7a0ac490a78
+```
+
+`--url` is the deployment's own base URL (`ACI_SERVER_URL` / `CLI_SERVER_URL` are used as
+defaults), `--org-id` the org the platform project belongs to. It `GET /v1/projects` with
+header `X-ACI-ORG-ID` and reuses the selected project; only when the org has none does it
+`POST /v1/projects`, so re-runs are idempotent and the per-org project quota
+(`SERVER_MAX_PROJECTS_PER_ORG`) is not consumed.
+
+| Flag | Purpose |
+| --- | --- |
+| `--format env` | print `LYZR_API_KEY_ID_DB=<uuid>` instead of the bare UUID |
+| `--format json` | print `project_id`, `agent_id`, `api_key_id` and the API key secret |
+| `--env-file PATH` | upsert `LYZR_API_KEY_ID_DB=<uuid>` in an env file, leaving the rest intact |
+| `--name` | project name to prefer/create (default `Default Org`) |
+| `--force-create` | always create a new project (yields a **new** id — see the warning below) |
+| `--timeout` / `--retries` / `--retry-delay` | tune the HTTP retries used while a fresh rollout warms up |
+
+Equivalent raw call, if you can run neither:
+
+```bash
+curl -sX POST 'https://aci.azure.lyzr.app/v1/projects' \
+  -H 'accept: application/json' -H 'Content-Type: application/json' \
+  -d '{"name": "Default Org", "org_id": "2c06717b-c034-471a-b7fb-c8e3f5791042"}' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["agents"][0]["api_keys"][0]["id"])'
+```
+
+### Rollout order (infra)
+
+New deployment: apply migrations, start the server, seed tools. The platform key is handled
+on the first boot; if you want it pinned in your secret store, read it from the startup log
+line (`LYZR_API_KEY_ID_DB=<uuid> (created platform project ...)`) or with the CLI command.
+
+Existing deployment where you set the value by hand: keep setting it. Changing it requires a
+**server restart** to take effect for the process, and tools seeded under the previous id
+stay bound to it.
+
+> [!WARNING]
+> Keep the value stable per deployment. Creating another project (`--force-create`, or a
+> manual `POST /v1/projects`) produces a different `api_key_id`; pointing
+> `LYZR_API_KEY_ID_DB` at it orphans every app already seeded under the previous id. Seed
+> tools *after* the platform key exists, so apps land under it.
+
 ## PropelAuth Configuration
 
 > [!NOTE]
@@ -364,6 +499,7 @@ Commands:
   create-project                 Create a project in db.
   create-random-api-key          Create a random test api key for local...
   delete-app                     Delete an app and all its references...
+  ensure-platform-api-key        Find (or create on first run) the...
   fuzzy-test-function-execution  Test function execution with...
   get-app                        Get an app by name from the database.
   rename-app                     Rename an app and update all related...

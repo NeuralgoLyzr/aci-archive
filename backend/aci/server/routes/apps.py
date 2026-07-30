@@ -24,7 +24,9 @@ logger = get_logger(__name__)
 router = APIRouter()
 # TODO: will this be a bottleneck and problem if high concurrent requests from users?
 openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
-LYZR_API_KEY_ID_DB = get_lyzr_api_key_id()
+# NOTE: get_lyzr_api_key_id() is called per request on purpose; the platform api_key_id is
+# seeded during startup (aci.common.platform_api_key.seed_env_from_db), which happens after
+# this module is imported.
 
 
 @router.get("", response_model_exclude_none=True)
@@ -47,6 +49,7 @@ async def list_apps(
 
     # TODO: Now if include_functions=true, it returns all functions of the app whether or not it is enabled by the agent.
     # We can either add a optional filtering logic or add a flag to clarify whether each function is enabled by the agent.
+    lyzr_api_key_id = get_lyzr_api_key_id()
     response: list[AppDetails] = []
     for app in apps:
         app_details = AppDetails(
@@ -66,7 +69,7 @@ async def list_apps(
             functions=[FunctionDetails.model_validate(function) for function in app.functions],
             created_at=app.created_at,
             updated_at=app.updated_at,
-            custom_app=app.api_key_id != LYZR_API_KEY_ID_DB,
+            custom_app=app.api_key_id != lyzr_api_key_id,
         )
         response.append(app_details)
 
@@ -224,7 +227,7 @@ async def get_app_details(
         functions=[FunctionDetails.model_validate(function) for function in functions],
         created_at=app.created_at,
         updated_at=app.updated_at,
-        custom_app=app.api_key_id != LYZR_API_KEY_ID_DB,
+        custom_app=app.api_key_id != get_lyzr_api_key_id(),
     )
 
     return app_details

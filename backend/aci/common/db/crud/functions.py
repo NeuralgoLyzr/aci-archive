@@ -11,8 +11,6 @@ from aci.common.enums import Visibility
 from aci.common.logging_setup import get_logger
 from aci.common.schemas.function import FunctionUpsert
 
-LYZR_API_KEY_ID_DB = get_lyzr_api_key_id()
-
 logger = get_logger(__name__)
 
 
@@ -200,8 +198,12 @@ def get_function(
             if getattr(function, "api_key_id", None) == api_key_id:
                 return function
 
+    # Read at call time: the value is seeded during server startup (see
+    # aci.common.platform_api_key.seed_env_from_db), so a module-level constant would
+    # capture None on a fresh deployment.
+    lyzr_api_key_id = get_lyzr_api_key_id()
     for function in functions:
-        if getattr(function, "api_key_id", None) == LYZR_API_KEY_ID_DB:
+        if getattr(function, "api_key_id", None) == lyzr_api_key_id:
             return function
 
     return functions[0]

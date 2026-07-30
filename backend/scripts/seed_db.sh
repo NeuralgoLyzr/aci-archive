@@ -122,6 +122,9 @@ seed_required_data() {
 
   # Seed the database with a default project and a default agent. The command will
   # output the API key of that agent that can be used in the swagger UI.
+  # NOTE: this prints the API key *secret*. LYZR_API_KEY_ID_DB is the api_keys.id UUID and is
+  # seeded automatically on server startup; print it with
+  # `python -m aci.cli ensure-platform-api-key` (see README.md -> "Platform API Key ID").
   python -m aci.cli create-random-api-key --visibility-access public --org-id 107e06da-e857-4864-bc1d-4adcba02ab76
 }
 
