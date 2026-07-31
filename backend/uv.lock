@@ -109,7 +109,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3.28" },
     { name = "limits", specifier = ">=5.2.0" },
     { name = "logfire", extras = ["fastapi", "sqlalchemy"], specifier = ">=3.16.0" },
-    { name = "lyzr-cloudrift", extras = ["aws", "azure"] },
+    { name = "lyzr-cloudrift", extras = ["aws", "azure"], specifier = "==0.2.9" },
     { name = "openai", specifier = ">=1.80.0" },
     { name = "openapi-spec-validator", specifier = ">=0.7.1" },
     { name = "opentelemetry-api", specifier = "==1.41.1" },
@@ -2195,11 +2195,11 @@ sqlalchemy = [
 
 [[package]]
 name = "lyzr-cloudrift"
-version = "0.2.6"
+version = "0.2.9"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/20/40/e0b99ffa9e82c38e237ecad395be2863beddec380f060026209b95adb438/lyzr_cloudrift-0.2.6.tar.gz", hash = "sha256:39e4b3a046d899dbf0a130e30ae6e0625b196900b48658af5c0bda3311618c39", size = 268193, upload-time = "2026-06-25T06:43:14.87Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2d/ef/477fe651e3bed71f1fc1c9a9b1bb3b2d0da3c1ce9508f7b3ae6a7e388dfe/lyzr_cloudrift-0.2.9.tar.gz", hash = "sha256:aa3c70f8128cb171c4bc90c6753f6372473c3aa40c5ea75079474dcbc8d8b0a7", size = 281652, upload-time = "2026-07-31T10:04:59.064Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/16/4d9cb8c4a7aec1935892117b0e33db6ac69acb9c15f1d8e62f369a9c7321/lyzr_cloudrift-0.2.6-py3-none-any.whl", hash = "sha256:f6cd102f8389574ed67d7aa62e9c1a8f657105d38d20631e423667f3dc7859fe", size = 91395, upload-time = "2026-06-25T06:43:13.054Z" },
+    { url = "https://files.pythonhosted.org/packages/14/cf/e7001cf1a3ee344bdb43edac29777a6124bddd6672d4f0e8864b691d3799/lyzr_cloudrift-0.2.9-py3-none-any.whl", hash = "sha256:124be02ca2bc57e26478edaa8985d1b4a64eb967030f8ac64d2caf344e97e515", size = 99022, upload-time = "2026-07-31T10:04:57.269Z" },
 ]
 
 [package.optional-dependencies]
