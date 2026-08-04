@@ -33,7 +33,7 @@ dependencies = [
     "azure-identity>=1.17.0",
     "cryptography>=46.0.7",
     "aioboto3>=13.3.0",
-    "lyzr-cloudrift[aws,azure]",
+    "lyzr-cloudrift[aws,azure]>=0.2.11",
     "rich>=13.9.4",
     "propelauth-fastapi>=4.2.6",
     "svix>=1.65.0",
