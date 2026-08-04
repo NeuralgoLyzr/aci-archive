@@ -109,7 +109,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3.28" },
     { name = "limits", specifier = ">=5.2.0" },
     { name = "logfire", extras = ["fastapi", "sqlalchemy"], specifier = ">=3.16.0" },
-    { name = "lyzr-cloudrift", extras = ["aws", "azure"] },
+    { name = "lyzr-cloudrift", extras = ["aws", "azure"], specifier = ">=0.2.11" },
     { name = "openai", specifier = ">=1.80.0" },
     { name = "openapi-spec-validator", specifier = ">=0.7.1" },
     { name = "opentelemetry-api", specifier = "==1.41.1" },
@@ -2195,18 +2195,18 @@ sqlalchemy = [
 
 [[package]]
 name = "lyzr-cloudrift"
-version = "0.2.6"
+version = "0.2.11"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/20/40/e0b99ffa9e82c38e237ecad395be2863beddec380f060026209b95adb438/lyzr_cloudrift-0.2.6.tar.gz", hash = "sha256:39e4b3a046d899dbf0a130e30ae6e0625b196900b48658af5c0bda3311618c39", size = 268193, upload-time = "2026-06-25T06:43:14.87Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/5e/940092bc607bfee7c5afea55af2201b9f7b69961034563dfc6db62da301b/lyzr_cloudrift-0.2.11.tar.gz", hash = "sha256:7279bf19e1f68322d01f13a0c4e963f3e53bdfec0b5c98f3c643ea1b8c3c3cd1", size = 284981, upload-time = "2026-08-04T07:52:38.901Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/16/4d9cb8c4a7aec1935892117b0e33db6ac69acb9c15f1d8e62f369a9c7321/lyzr_cloudrift-0.2.6-py3-none-any.whl", hash = "sha256:f6cd102f8389574ed67d7aa62e9c1a8f657105d38d20631e423667f3dc7859fe", size = 91395, upload-time = "2026-06-25T06:43:13.054Z" },
+    { url = "https://files.pythonhosted.org/packages/58/43/f43ae16c8633b6ca534426617738dc401d90e0d63f4160037027175b48dc/lyzr_cloudrift-0.2.11-py3-none-any.whl", hash = "sha256:30d3ad763e3e2db305c6035665c4b73eca5ae6596a3970517e3018cf9196967c", size = 100275, upload-time = "2026-08-04T07:52:37.503Z" },
 ]
 
 [package.optional-dependencies]
 aws = [
     { name = "aioboto3" },
     { name = "motor" },
-    { name = "pymongo" },
+    { name = "pymongo", extra = ["aws"] },
     { name = "redis", extra = ["hiredis"] },
 ]
 azure = [
@@ -3454,6 +3454,24 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/d8/b75f6f4ab6c8beb50b0270a4f1e2530b5774f5e116563440e1677ca1820f/pymongo-4.17.0-cp314-cp314t-win32.whl", hash = "sha256:b93b22eedc62598cf5ee9d8c8007a8e9121c50fd88137012d8985500e9dc3151", size = 1056356, upload-time = "2026-04-20T16:39:22.996Z" },
     { url = "https://files.pythonhosted.org/packages/e4/5e/648c8a238eef18a25ed8a169ea6542d4a860bbec3e95b3d9badac2935c71/pymongo-4.17.0-cp314-cp314t-win_amd64.whl", hash = "sha256:3689ea34f6b647c7d1e7bdc60fcfb214b2789ed1359a7fb96569c69f50e5f18f", size = 1090964, upload-time = "2026-04-20T16:39:24.989Z" },
     { url = "https://files.pythonhosted.org/packages/dc/cb/d9780b66939c4fc1f024bcc7be23a2abcfe06a9745ca8fa76dc73395482e/pymongo-4.17.0-cp314-cp314t-win_arm64.whl", hash = "sha256:9543d8f84c2e5608565c08ac679774811e6730770d8a645439b073422a4276fb", size = 1058526, upload-time = "2026-04-20T16:39:27.924Z" },
+]
+
+[package.optional-dependencies]
+aws = [
+    { name = "pymongo-auth-aws" },
+]
+
+[[package]]
+name = "pymongo-auth-aws"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "boto3" },
+    { name = "botocore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c7/37/ca8d840f322f0047b71afcec7a489b1ea1f59a5f6d29f91ad8004024736f/pymongo_auth_aws-1.3.0.tar.gz", hash = "sha256:d0fa893958dc525ca29f601c34f2ca73c860f66bc6511ec0a7da6eb7ea44e94f", size = 18559, upload-time = "2024-09-11T20:29:17.668Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/12/a997fc108416f31fac55748e5406c1c8c4e976a4073f07b5553825641611/pymongo_auth_aws-1.3.0-py3-none-any.whl", hash = "sha256:367f6d853da428a02e9e450422756133715d40f8141f47ae5d98f139a88c0ce5", size = 15470, upload-time = "2024-09-11T20:29:16.637Z" },
 ]
 
 [[package]]
