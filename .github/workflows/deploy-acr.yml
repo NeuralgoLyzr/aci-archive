@@ -1,0 +1,52 @@
+name: Build → Push ACR (Accenture)
+
+on:
+    push:
+      branches:
+        - enterprise/merge_dev_to_prod
+
+permissions:
+    id-token: write   # OIDC token exchange with Azure AD
+    contents: read
+
+env:
+    ACR_REGISTRY: lyzrstudioaccenture.azurecr.io
+    SERVICE_IMAGE: studio-aci
+
+jobs:
+    build-push:
+      name: Build & Push ACR
+      runs-on: ubuntu-latest
+      environment: accenture-spotlight
+
+      steps:
+        - uses: actions/checkout@v4
+
+        - name: Set image tag
+          id: tag
+          run: echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+        - name: Azure login (OIDC)
+          uses: azure/login@v2
+          with:
+            client-id: ${{ vars.AZURE_CLIENT_ID }}
+            tenant-id: ${{ vars.AZURE_TENANT_ID }}
+            subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+        - name: ACR login
+          run: az acr login --name lyzrstudioaccenture
+
+        - name: Set up Docker Buildx
+          uses: docker/setup-buildx-action@v3
+
+        - name: Build and push image
+          uses: docker/build-push-action@v5
+          with:
+            context: .
+            file: backend/Dockerfile.server   
+            push: true
+            tags: |
+              ${{ env.ACR_REGISTRY }}/${{ env.SERVICE_IMAGE }}:${{ steps.tag.outputs.tag }}
+              ${{ env.ACR_REGISTRY }}/${{ env.SERVICE_IMAGE }}:latest
+            cache-from: type=gha,scope=acr-service
+            cache-to:   type=gha,scope=acr-service,mode=max
