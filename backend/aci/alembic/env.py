@@ -7,6 +7,11 @@ from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 from aci.common.db.sql_models import Base
+from aci.common.utils import (
+    _build_iam_sqlalchemy_url,
+    _iam_auth_enabled,
+    attach_iam_token_provider,
+)
 
 load_dotenv()
 
@@ -48,6 +53,10 @@ def _get_db_url() -> str:
     DB_HOST = os.getenv("ALEMBIC_DB_HOST") or os.getenv("SERVER_DB_HOST") or "localhost"
     DB_PORT = os.getenv("ALEMBIC_DB_PORT") or os.getenv("SERVER_DB_PORT") or "5432"
     DB_NAME = os.getenv("ALEMBIC_DB_NAME") or os.getenv("SERVER_DB_NAME") or "my_app_db"
+    if _iam_auth_enabled():
+        # IAM token is minted per-connection by attach_iam_token_provider, so the
+        # URL carries no password.
+        return _build_iam_sqlalchemy_url(DB_SCHEME, DB_USER, DB_HOST, DB_PORT, DB_NAME)
     DB_PASSWORD = _get_db_password()
     return f"{DB_SCHEME}://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
@@ -89,6 +98,8 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    if _iam_auth_enabled():
+        attach_iam_token_provider(connectable)
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
