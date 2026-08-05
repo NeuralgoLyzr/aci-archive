@@ -1,0 +1,61 @@
+name: Build → Push ACR → Bump tag (GitOps)
+
+# On merge to enterprise/merge_dev_to_prod: build the image(s), push to our ACR,
+# then commit the new tag into the manifests repo. ArgoCD deploys from there.
+on:
+  push:
+    branches:
+      - enterprise/merge_dev_to_prod
+
+concurrency:
+  group: gitops-build-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: tag
+        run: echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to ACR
+        run: echo "${{ secrets.ACR_PASSWORD }}" | docker login "${{ secrets.ACR_LOGIN_SERVER }}" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push lyzr-aci
+        run: |
+          docker buildx build --platform linux/amd64 \
+            -f backend/Dockerfile.server \
+            -t "${{ secrets.ACR_LOGIN_SERVER }}/lyzr-aci:${{ steps.tag.outputs.tag }}" \
+            -t "${{ secrets.ACR_LOGIN_SERVER }}/lyzr-aci:latest" \
+            --push .
+
+      - name: Bump tag(s) in manifests repo
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.MANIFESTS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git clone --depth 1 git@github.com:NeuralgoLyzr/lyzr-studio-k8s-manifests-azure.git mf
+          cd mf
+          TAG="${{ steps.tag.outputs.tag }}"
+          yq -i '.services.aci.image.tag = "'"$TAG"'"' environments/dev/values.yaml
+          git config user.name "lyzr-ci"
+          git config user.email "ci@lyzr.ai"
+          if git diff --quiet; then echo "no tag change"; exit 0; fi
+          git commit -am "ci(aci): aci -> ${TAG:0:12}"
+          for i in 1 2 3 4 5 6; do
+            if git pull --rebase origin main && git push origin main; then echo pushed; exit 0; fi
+            sleep $(( (RANDOM % 6) + 2 ))
+          done
+          echo "failed to push after retries"; exit 1
+
