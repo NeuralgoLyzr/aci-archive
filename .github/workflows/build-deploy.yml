@@ -36,7 +36,7 @@ jobs:
             -f backend/Dockerfile.server \
             -t "${{ secrets.ACR_LOGIN_SERVER }}/lyzr-aci:${{ steps.tag.outputs.tag }}" \
             -t "${{ secrets.ACR_LOGIN_SERVER }}/lyzr-aci:latest" \
-            --push .
+            --push backend
 
       - name: Bump tag(s) in manifests repo
         run: |
