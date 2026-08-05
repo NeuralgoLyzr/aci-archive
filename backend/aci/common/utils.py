@@ -94,10 +94,18 @@ _db_url_cache: str | None = None
 _secrets_backend = None
 
 
+@cache
 def _iam_auth_enabled() -> bool:
     """Whether to authenticate to Postgres with AWS RDS/Aurora IAM tokens instead
     of a static password. Off by default so password auth stays the norm; enable
-    per-deployment with SERVER_DB_IAM_AUTH=true."""
+    per-deployment with SERVER_DB_IAM_AUTH=true.
+
+    Read once and frozen for the process lifetime (IAM vs password is a deploy-time
+    decision). This is load-bearing: the flag is consulted independently by URL
+    construction, engine setup, and the Alembic env, and they MUST agree — otherwise
+    the shared _db_url_cache could be populated by one auth path and then reused by
+    the other (e.g. a passwordless URL with no token hook). Caching lazily rather
+    than at module load ensures the value is read after Alembic's load_dotenv()."""
     return os.getenv("SERVER_DB_IAM_AUTH", "false").strip().lower() in ("true", "1", "yes")
 
 
