@@ -94,6 +94,21 @@ _db_url_cache: str | None = None
 _secrets_backend = None
 
 
+@cache
+def _iam_auth_enabled() -> bool:
+    """Whether to authenticate to Postgres with AWS RDS/Aurora IAM tokens instead
+    of a static password. Off by default so password auth stays the norm; enable
+    per-deployment with SERVER_DB_IAM_AUTH=true.
+
+    Read once and frozen for the process lifetime (IAM vs password is a deploy-time
+    decision). This is load-bearing: the flag is consulted independently by URL
+    construction, engine setup, and the Alembic env, and they MUST agree — otherwise
+    the shared _db_url_cache could be populated by one auth path and then reused by
+    the other (e.g. a passwordless URL with no token hook). Caching lazily rather
+    than at module load ensures the value is read after Alembic's load_dotenv()."""
+    return os.getenv("SERVER_DB_IAM_AUTH", "false").strip().lower() in ("true", "1", "yes")
+
+
 def _get_secrets_backend():
     """Build a cloudrift secrets backend based on CLOUD_PLATFORM."""
     global _secrets_backend
@@ -168,6 +183,62 @@ def _build_sqlalchemy_url(
     return backend.sqlalchemy_url(driver=scheme)
 
 
+def _build_iam_sqlalchemy_url(
+    scheme: str, user: str, host: str, port: str, db_name: str
+) -> str:
+    """Build a password-less SQLAlchemy URL for AWS RDS/Aurora IAM auth.
+
+    The IAM token is short-lived (~15 min) and minted per physical connection by
+    the do_connect hook (see attach_iam_token_provider), so it must NOT be baked
+    into the URL. cloudrift's sqlalchemy_url() deliberately rejects token auth for
+    exactly this reason, so we construct the URL directly via SQLAlchemy's URL
+    helper (which still percent-encodes the components).
+    """
+    from sqlalchemy import URL
+
+    return URL.create(
+        scheme, username=user, host=host, port=int(port), database=db_name
+    ).render_as_string(hide_password=False)
+
+
+def attach_iam_token_provider(engine: Engine) -> None:
+    """Register a do_connect hook that authenticates each new physical connection
+    with a freshly minted AWS RDS/Aurora IAM token instead of a static password.
+
+    RDS IAM tokens expire after ~15 min and are only consumed during the connection
+    handshake, so a fresh token must be generated for every new connection the pool
+    opens (growth, recycle, pre-ping reconnect) — never cached in the URL. IAM auth
+    also mandates TLS, so sslmode is forced on (defaults to "require", overridable
+    via SERVER_DB_SSLMODE; set SERVER_DB_SSLROOTCERT to pin the RDS CA bundle).
+    """
+    import boto3  # type: ignore
+    from sqlalchemy import event
+
+    region = check_and_get_env_variable("AWS_REGION_NAME")
+    sslmode = os.getenv("SERVER_DB_SSLMODE", "require")
+    sslrootcert = os.getenv("SERVER_DB_SSLROOTCERT")
+    # One RDS client per engine: generate_db_auth_token presigns locally (no network
+    # call) and boto3 clients are thread-safe, so reuse across connects is safe and
+    # lets the client's credential provider handle IAM-role credential refresh.
+    rds_client = boto3.client("rds", region_name=region)
+    # Derive connection identity from the URL we built, not from cparams, so this
+    # doesn't depend on the dialect's cparams key names.
+    host = engine.url.host
+    port = engine.url.port or 5432
+    user = engine.url.username
+
+    @event.listens_for(engine, "do_connect")
+    def _provide_iam_token(
+        dialect: object, conn_rec: object, cargs: list, cparams: dict
+    ) -> None:
+        cparams["password"] = rds_client.generate_db_auth_token(
+            DBHostname=host, Port=port, DBUsername=user, Region=region
+        )
+        cparams["sslmode"] = sslmode
+        if sslrootcert:
+            cparams["sslrootcert"] = sslrootcert
+
+
 def construct_db_url_sync(
     scheme: str, user: str, host: str, port: str, db_name: str
 ) -> str:
@@ -178,6 +249,10 @@ def construct_db_url_sync(
     """
     global _db_url_cache
     if _db_url_cache is not None:
+        return _db_url_cache
+
+    if _iam_auth_enabled():
+        _db_url_cache = _build_iam_sqlalchemy_url(scheme, user, host, port, db_name)
         return _db_url_cache
 
     password = get_db_password_sync()
@@ -194,6 +269,10 @@ async def construct_db_url(
     """
     global _db_url_cache
     if _db_url_cache is not None:
+        return _db_url_cache
+
+    if _iam_auth_enabled():
+        _db_url_cache = _build_iam_sqlalchemy_url(scheme, user, host, port, db_name)
         return _db_url_cache
 
     password = await get_db_password()
@@ -229,7 +308,7 @@ def get_db_engine(db_url: str) -> Engine:
     pool_size = int(os.getenv("DB_POOL_SIZE", "20"))
     max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "40"))
     pool_timeout = int(os.getenv("DB_POOL_TIMEOUT", "10"))
-    return create_engine(
+    engine = create_engine(
         db_url,
         pool_size=pool_size,
         max_overflow=max_overflow,
@@ -237,6 +316,9 @@ def get_db_engine(db_url: str) -> Engine:
         pool_recycle=3600,  # recycle connections after 1 hour
         pool_pre_ping=True,
     )
+    if _iam_auth_enabled():
+        attach_iam_token_provider(engine)
+    return engine
 
 
 # NOTE: cache this because only one sessionmaker is needed for all db sessions
