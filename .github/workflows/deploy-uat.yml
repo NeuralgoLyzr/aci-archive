@@ -52,7 +52,7 @@ jobs:
         - name: Build and push service image
           uses: docker/build-push-action@v5
           with:
-            context: .
+            context: backend
             file: backend/Dockerfile.server
             platforms: linux/amd64
             push: true
