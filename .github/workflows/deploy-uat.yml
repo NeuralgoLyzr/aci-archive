@@ -1,0 +1,83 @@
+name: Build → Push → Deploy UAT
+
+on:
+    push:
+      branches:
+        - enterprise/merge_dev_to_prod
+
+permissions:
+    id-token: write   # OIDC token exchange with AWS
+    contents: read
+
+env:
+    AWS_REGION:   us-east-1
+    ECR_REGISTRY: 425642439121.dkr.ecr.us-east-1.amazonaws.com
+    SERVICE_REPO: studio-aci
+
+jobs:
+    # ─── 1. Test (disabled — enable once a gate is decided) ─────────────────────
+    # test:
+    #   name: Test
+    #   runs-on: ubuntu-latest
+    #   steps:
+    #     - uses: actions/checkout@v4
+
+    # ─── 2. Build & Push ─────────────────────────────────────────────────────────
+    build-push:
+      name: Build & Push
+      runs-on: ubuntu-latest
+      environment: uat
+      # needs: test
+      outputs:
+        image_tag: ${{ steps.tag.outputs.tag }}
+      steps:
+        - uses: actions/checkout@v4
+
+        - name: Set image tag
+          id: tag
+          run: echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+        - name: Configure AWS credentials (OIDC)
+          uses: aws-actions/configure-aws-credentials@v4
+          with:
+            role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
+            aws-region: ${{ env.AWS_REGION }}
+
+        - name: Login to Amazon ECR
+          uses: aws-actions/amazon-ecr-login@v2
+
+        - name: Set up Docker Buildx
+          uses: docker/setup-buildx-action@v3
+
+        - name: Build and push service image
+          uses: docker/build-push-action@v5
+          with:
+            context: .
+            file: backend/Dockerfile.server
+            platforms: linux/amd64
+            push: true
+            tags: |
+              ${{ env.ECR_REGISTRY }}/${{ env.SERVICE_REPO }}:${{ steps.tag.outputs.tag }}
+              ${{ env.ECR_REGISTRY }}/${{ env.SERVICE_REPO }}:latest
+            cache-from: type=gha,scope=service
+            cache-to:   type=gha,scope=service,mode=max
+
+    # ─── 3. Update Manifests ───────────────────────────────────────────────────
+    update-manifests:
+      name: Update K8s Manifests
+      runs-on: ubuntu-latest
+      needs: build-push
+      steps:
+        - name: Trigger image update — service
+          uses: peter-evans/repository-dispatch@v3
+          with:
+            token: ${{ secrets.K8S_MANIFESTS_PAT }}
+            repository: NeuralgoLyzr/lyzr-studio-k8-manifests-aws
+            event-type: update-image-tag
+            client-payload: |
+              {
+                "section": "services",
+                "key":     "aci",
+                "tag":     "${{ needs.build-push.outputs.image_tag }}",
+                "env":     "uat"
+              }
