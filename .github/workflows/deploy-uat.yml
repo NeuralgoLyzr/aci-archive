@@ -3,7 +3,7 @@ name: Build → Push → Deploy UAT
 on:
     push:
       branches:
-        - enterprise/merge_dev_to_prod
+        - master
 
 permissions:
     id-token: write   # OIDC token exchange with AWS
